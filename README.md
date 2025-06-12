@@ -101,6 +101,8 @@ Upload Detect-Drives.ps1
 
 Configure Requirements, Dependencies, and Assignments as needed.
 
+Don't forget to use "as User" and not as system context
+
 ## ⚙️ Customization
 The mapping logic is stored in Map-Drives.ps1 and may look like:
 
