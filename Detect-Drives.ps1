@@ -20,14 +20,14 @@ $headers = @{
 # Identité de l'utilisateur connecté
 $localUser = whoami
 $localUserName = $localUser.Split('\')[-1]
-$localUserEmail = "$localUserName@spineart.com"
+$localUserEmail = "$localUserName@DOMAIN.com"
 
 # Récupération de l'ID utilisateur
 $userResponse = Invoke-RestMethod -Uri "https://graph.microsoft.com/v1.0/users/$localUserEmail" -Headers $headers -Method Get
 $UserId = $userResponse.id
 
 # Récupération des groupes
-$groupsUri = "https://graph.microsoft.com/v1.0/users/$UserId/transitiveMemberOf/microsoft.graph.group?`$count=true&`$filter=startswith(displayName, 'ALPESCN_') or startswith(displayName, 'R%26D')&`$top=999"
+$groupsUri = "https://graph.microsoft.com/v1.0/users/$UserId/transitiveMemberOf/microsoft.graph.group?`$count=true&`$filter=startswith(displayName, 'AZURE/AD_GROUPS*') or startswith(displayName, 'ASYOUWANT')&`$top=999"
 $groups = Invoke-RestMethod -Uri $groupsUri -Headers $headers -Method Get
 $groupNames = $groups.value | ForEach-Object { $_.displayName }
 
@@ -42,7 +42,10 @@ $DriveMappings = @{
 }
 $NetworkShares = @{
     "Names1" = "\\SERVEUR\PATH"
-    "Names2" = @("\\SERVEUR\PATH2", "\\SERVEUR\PATH3")
+    "Names2" = @(
+ "\\SERVEUR\PATH2",
+ "\\SERVEUR\PATH3"
+)
 }
 
 # Détermination des lecteurs à monter
