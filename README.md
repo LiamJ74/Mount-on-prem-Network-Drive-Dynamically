@@ -15,6 +15,46 @@ Detect-Drives.ps1 – PowerShell script to detect missing or misconfigured mappe
 
 Map-Drives.ps1 – PowerShell script that maps drives based on group membership.
 
+## 🔐 Prerequisite: App Registration in Azure AD
+If the remediation script queries Microsoft Graph API, you must create an App Registration to authenticate and authorize API access.
+
+🔧 Steps to create the App Registration
+Go to Azure Portal > Azure Active Directory > App registrations > + New registration.
+
+Fill in:
+
+Name: IntuneDriveMapper (or any name)
+
+Supported account types: Accounts in this organizational directory only (Single tenant)
+
+Click Register.
+
+Once created:
+
+Go to Certificates & secrets > + New client secret
+
+Note down the secret value (you won’t see it again).
+
+Go to API Permissions > + Add a permission > Microsoft Graph > Delegated permissions:
+
+GroupMember.Read.All
+
+User.Read
+
+Click Grant admin consent.
+
+Copy the following values for your script:
+
+Tenant ID
+
+Client ID
+
+Client Secret
+
+These will be injected securely (e.g., via Intune script parameters or encrypted storage) and used in the remediation script to call Microsoft Graph.
+
+
+
 
 ## 🔁 Logic Overview
 Detection script:
