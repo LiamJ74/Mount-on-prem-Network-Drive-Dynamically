@@ -1,36 +1,72 @@
-# Liste des partages réseau à vérifier
-$NetworkShares = @{
-    "Names1" = "\\SERVEUR\PATH"
-    "Names2" = @(
- "\\SERVEUR\PATH2",
- "\\SERVEUR\PATH3"
-)
-}
+<#
+.SYNOPSIS
+    Detection script for Intune.
+.DESCRIPTION
+    This script checks if the required network drives, as defined by the main mapping script,
+    are correctly configured. It reads a status file left by the mapping script
+    to get the list of drives that should be present.
+#>
 
-# Récupère les partages réseau actuellement mappés
-try {
-    $MappedShares = Get-WmiObject -Class Win32_NetworkConnection -ErrorAction Stop | Select-Object -ExpandProperty RemoteName
-} catch {
-    Write-Output "Erreur lors de la récupération des connexions réseau."
+# --- Configuration ---
+$StatusFileDirectory = "$env:ProgramData\IntuneDriveMapping"
+$StatusFileName = "status.json"
+$StatusFilePath = Join-Path -Path $StatusFileDirectory -ChildPath $StatusFileName
+$MaxAgeHours = 24 # Number of hours before the status is considered outdated
+
+# --- Script Start ---
+
+# Check if the status file exists
+if (-not (Test-Path -Path $StatusFilePath)) {
+    Write-Output "Status file not found at '$StatusFilePath'. Remediation required."
     exit 1
 }
 
-# Aplatissement de toutes les valeurs (simple ou tableau) dans une seule liste
-$AllTargetShares = foreach ($entry in $NetworkShares.GetEnumerator()) {
-    if ($entry.Value -is [Array]) {
-        $entry.Value
-    } else {
-        $entry.Value
+# Read and parse the status file
+$status = Get-Content -Path $StatusFilePath | ConvertFrom-Json
+if (-not $status) {
+    Write-Output "Could not read or parse the status file. Remediation required."
+    exit 1
+}
+
+# Check the age of the status file
+$lastRunTimestamp = [datetime]$status.lastRunTimestamp
+$age = (Get-Date) - $lastRunTimestamp
+if ($age.TotalHours -gt $MaxAgeHours) {
+    Write-Output "Status file is outdated (older than $MaxAgeHours hours). Remediation required."
+    exit 1
+}
+
+# Get currently mapped drives
+try {
+    $mappedDrives = Get-WmiObject -Class Win32_MappedLogicalDisk | Select-Object -ExpandProperty ProviderName
+} catch {
+    Write-Error "Error retrieving mapped drives."
+    exit 1 # Exit with error, Intune will retry later
+}
+
+# Get the list of required drives from the status file
+$requiredUncPaths = $status.requiredDrives
+
+# If no drives are required for this user, detection is successful
+if ($null -eq $requiredUncPaths -or $requiredUncPaths.Count -eq 0) {
+     Write-Output "No network drives are required for this user. Detection successful."
+     exit 0
+}
+
+# Check if all required drives are mapped
+$allDrivesMapped = $true
+foreach ($path in $requiredUncPaths) {
+    if ($mappedDrives -notcontains $path) {
+        Write-Output "Detection: Required drive missing - '$path'"
+        $allDrivesMapped = $false
+        break
     }
 }
 
-# Comparaison avec les connexions actives
-foreach ($share in $AllTargetShares) {
-    if ($MappedShares -contains $share) {
-        Write-Output "Détection réussie : $share est monté."
-        exit 0
-    }
+if ($allDrivesMapped) {
+    Write-Output "Detection: All required drives are mapped."
+    exit 0
+} else {
+    Write-Output "Detection: At least one required drive is missing. Remediation required."
+    exit 1
 }
-
-Write-Output "Aucun lecteur réseau requis n'est monté."
-exit 1

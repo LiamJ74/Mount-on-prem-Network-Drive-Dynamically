@@ -1,129 +1,124 @@
-# Mount-on-prem-Network-Drive-Dynamically
-Abillity to mount on-prem network drive dynamically through powershell and Intune
+# 🗺️ Dynamic Network Drive Mapping with Intune
 
+This project provides a solution to dynamically map on-premises network drives based on a user's Azure AD group membership. The deployment is designed to be managed via Microsoft Intune as a Win32 application.
 
-## Summary
-This solution provides automated mapping of network drives based on the logged-in user's Azure AD group membership. It is designed to be deployed via Microsoft Intune using the Win32 app model and includes:
+## ✨ Summary
 
-A detection script: Verifies if the correct drives are already mapped.
+The solution automates the mapping of network drives for users. It includes:
 
-A remediation script: Automatically maps the required network drives.
+*   **A detection script**: Verifies if the correct network drives are already mapped.
+*   **A remediation script**: Maps the necessary network drives based on the user's Azure AD groups.
 
 ## 🧰 Package Contents
 
-Detect-Drives.ps1 – PowerShell script to detect missing or misconfigured mapped drives.
+*   `Detect-Drives.ps1` – The PowerShell script that detects missing or misconfigured drives.
+*   `Map-Drive.ps1` – The PowerShell script that performs the drive mapping.
 
-Map-Drives.ps1 – PowerShell script that maps drives based on group membership.
+## 🔐 Prerequisite: App Registration in Azure AD
 
-## 🔐 Prerequisite: App Registration in Azure AD
-If the remediation script queries Microsoft Graph API, you must create an App Registration to authenticate and authorize API access.
+For the script to query the Microsoft Graph API, an App Registration is required to authenticate and authorize access.
 
-🔧 Steps to create the App Registration
-Go to Azure Portal > Azure Active Directory > App registrations > + New registration.
+### 🔧 Steps to Create the App Registration
 
-Fill in:
+1.  Go to the **Azure Portal > Azure Active Directory > App registrations > + New registration**.
+2.  Fill in the information:
+    *   **Name**: `IntuneDriveMapper` (or a name of your choice).
+    *   **Supported account types**: Accounts in this organizational directory only (Single tenant).
+3.  Click **Register**.
 
-Name: IntuneDriveMapper (or any name)
+Once the application is created:
 
-Supported account types: Accounts in this organizational directory only (Single tenant)
+4.  Go to **Certificates & secrets > + New client secret**.
+    *   Make a note of the secret's **Value**. It will not be visible again after you leave the page.
+5.  Go to **API Permissions > + Add a permission > Microsoft Graph > Delegated permissions**:
+    *   `GroupMember.Read.All`
+    *   `User.Read`
+6.  Click **Grant admin consent**.
 
-Click Register.
+### 🔑 Information to Collect
 
-Once created:
+Copy the following values to use in the script:
+*   **Tenant ID**
+*   **Application (client) ID**
+*   **Client secret Value**
 
-Go to Certificates & secrets > + New client secret
+## 🔒 Secure Secret Management
 
-Note down the secret value (you won’t see it again).
+It is crucial **not to store secrets in plain text** within the script. Here are two recommended methods:
 
-Go to API Permissions > + Add a permission > Microsoft Graph > Delegated permissions:
+1.  **Command-Line Parameters (Recommended for Intune)**
+    *   The `Map-Drive.ps1` script is designed to accept secrets as command-line arguments.
+    *   When deploying via Intune, you can pass these values securely.
 
-GroupMember.Read.All
-
-User.Read
-
-Click Grant admin consent.
-
-Copy the following values for your script:
-
-Tenant ID
-
-Client ID
-
-Client Secret
-
-These will be injected securely (e.g., via Intune script parameters or encrypted storage) and used in the remediation script to call Microsoft Graph.
-
-
-
+2.  **Azure Key Vault (Advanced Solution)**
+    *   For maximum security, store the secrets in an Azure Key Vault.
+    *   The script can be modified to authenticate to the Key Vault (using a Managed Identity, for example) and retrieve the secrets at runtime.
 
 ## 🔁 Logic Overview
-Detection script:
 
-Identifies the current user's Azure AD groups.
+*   **Remediation Script (`Map-Drive.ps1`)**:
+    1.  Uses the Microsoft Graph API to retrieve the user's groups.
+    2.  Determines the exact list of required network drives.
+    3.  Maps any missing drives and removes any that are no longer needed.
+    4.  Creates a status file (`status.json`) in `C:\ProgramData\IntuneDriveMapping` with the list of drives that were just configured.
 
-Checks if corresponding network drives are correctly mapped.
-
-Returns exit code 0 if everything is correct; 1 otherwise.
-
-Remediation script:
-
-Uses Microsoft Graph API or group translation logic to determine user group membership.
-
-Maps network drives accordingly.
+*   **Detection Script (`Detect-Drives.ps1`)**:
+    1.  Reads the `status.json` file to know which drives should be mapped.
+    2.  Checks if the file is recent (less than 24 hours old by default).
+    3.  Verifies that the drives listed in the file match the currently mapped drives.
+    4.  Exits with code `0` (success) if everything matches, otherwise `1` (failure), which triggers the remediation.
 
 ## 📦 Intune Deployment Instructions
-Step 1 – Prepare the Intune Win32 App Package
-Use the Microsoft Win32 Content Prep Tool to bundle the scripts:
 
+**Step 1 – Prepare the Win32 Package**
 
-Step 2 – Create the Intune App
-In the Microsoft Endpoint Manager Admin Center, go to:
-Apps > Windows > + Add > Windows app (Win32).
+*   Use the `Microsoft Win32 Content Prep Tool` to package the two PowerShell scripts into an `.intunewin` file.
 
-Upload the .intunewin package you created.
+**Step 2 – Create the Application in Intune**
 
-Under Program, configure:
+1.  In the Microsoft Endpoint Manager admin center, go to:
+    **Apps > Windows > + Add > Windows app (Win32)**.
+2.  Upload the `.intunewin` package you created.
+3.  On the **Program** tab, configure the install command. This is where you pass the secrets as parameters:
 
-Install command:
+    ```powershell
+    powershell.exe -ExecutionPolicy Bypass -File .\\Map-Drive.ps1 -TenantId "YOUR_TENANT_ID" -ClientId "YOUR_CLIENT_ID" -ClientSecret "YOUR_SECRET" -Domain "YOUR_DOMAIN.com"
+    ```
+    *Replace the placeholders with your actual values.*
 
-powershell
-
-```
-powershell.exe -ExecutionPolicy Bypass -File ".\Map-Drives.ps1"
-```
-Uninstall command: (optional, if you support unmapping)
-
-Under Detection rules, select:
-
-Use a custom script
-
-Upload Detect-Drives.ps1
-
-Configure Requirements, Dependencies, and Assignments as needed.
-
-Don't forget to use "as User" and not as system context
+4.  Configure the uninstall command (optional).
+5.  Under **Detection rules**, select **Use a custom script** and upload `Detect-Drives.ps1`.
+6.  Ensure the application is deployed in the **user context**.
 
 ## ⚙️ Customization
-The mapping logic is stored in Map-Drives.ps1 and may look like:
 
-powershell
+The mapping logic is located in `Map-Drive.ps1`. You can customize it by modifying the hash tables:
 
-```
-$GroupDriveMap = @{
-    "GROUP-FINANCE" = @{ Drive = "Z:"; Path = "\\server\finance" }
-    "GROUP-HR"      = @{ Drive = "Y:"; Path = "\\server\hr" }
+```powershell
+# Maps a group name (with wildcard *) to a logical share name
+$DriveMappings = @{
+    "AZURE/AD_GROUPS*_R1"  = "Finance"
+    "AZURE/AD_GROUPS*_RW1" = "Finance"
+    "AZURE/AD_GROUPS*_R2"  = "HR"
+}
+
+# Maps a logical share name to one or more actual UNC paths
+$NetworkShares = @{
+    "Finance" = "\\SERVER\FINANCE"
+    "HR"      = @(
+        "\\SERVER\HR-DOCS",
+        "\\SERVER\HR-ARCHIVES"
+    )
 }
 ```
-🧪 Testing
-Manually run Detect-Drives.ps1 on a test machine to confirm proper detection logic.
 
-Ensure Intune logs reflect correct remediation if a drive is missing.
+## 🧪 Testing
 
-Use IntuneManagementExtension.log and AgentExecutor.log for troubleshooting.
+*   Manually run `Detect-Drives.ps1` on a test machine to validate the detection logic.
+*   Use the Intune logs (`IntuneManagementExtension.log`, `AgentExecutor.log`) for troubleshooting.
 
-✅ Result
-Fully automated network drive mapping based on Azure AD groups.
+## ✅ Result
 
-Self-healing: if drives are deleted or changed, the detection/remediation cycle will correct it automatically.
-
-Works seamlessly on Hybrid or Azure AD-joined devices.
+*   Fully automated network drive mapping based on Azure AD groups.
+*   Self-healing solution: deleted or modified drives are automatically corrected.
+*   Works on both Azure AD joined and Hybrid joined devices.

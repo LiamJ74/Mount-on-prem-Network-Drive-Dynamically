@@ -1,148 +1,199 @@
-#Final Version 10/06/2025
-# Authentification Entra ID (via App Registration)
-$tenantId = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-$clientId = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-$clientSecret = "XXXXXXXXXXXXXXXXXXXXXXXXXXX"
-$resource = "https://graph.microsoft.com/"
-$tokenUri = "https://login.microsoftonline.com/$tenantId/oauth2/v2.0/token"
+<#
+.SYNOPSIS
+    Maps network drives based on Azure AD group membership.
+.DESCRIPTION
+    This script, intended for deployment via Intune, determines a user's Azure AD groups,
+    maps corresponding network drives according to a defined configuration, removes old mappings,
+    and creates a status file for the detection script.
+.PARAMETER TenantId
+    The Azure AD Tenant ID.
+.PARAMETER ClientId
+    The Client ID of the registered Azure AD application.
+.PARAMETER ClientSecret
+    The client secret for the Azure AD application.
+.PARAMETER Domain
+    The company domain used to construct the user's UPN (e.g., "yourdomain.com").
+#>
+param(
+    [Parameter(Mandatory=$true)]
+    [string]$TenantId,
+    [Parameter(Mandatory=$true)]
+    [string]$ClientId,
+    [Parameter(Mandatory=$true)]
+    [string]$ClientSecret,
+    [Parameter(Mandatory=$true)]
+    [string]$Domain
+)
 
-$response = Invoke-RestMethod -Method Post -Uri $tokenUri -ContentType "application/x-www-form-urlencoded" -Body @{
-    grant_type    = "client_credentials"
-    client_id     = $clientId
-    client_secret = $clientSecret
-    scope         = "https://graph.microsoft.com/.default"
+# --- Configuration ---
+
+# Filter for searching groups in Graph API. Modify as needed.
+$GroupFilter = "startswith(displayName, 'AZURE/AD_GROUPS')"
+
+# Maps a group name (with wildcard *) to a logical share name.
+$DriveMappings = @{
+    "AZURE/AD_GROUPS*_R1"  = "Finance"
+    "AZURE/AD_GROUPS*_RW1" = "Finance"
+    "AZURE/AD_GROUPS*_R2"  = "HR"
+    "AZURE/AD_GROUPS*_RW2" = "HR"
 }
-$token = $response.access_token
+
+# Maps a logical share name to one or more actual UNC paths.
+$NetworkShares = @{
+    "Finance" = "\\SERVER\\FINANCE"
+    "HR"      = @(
+        "\\SERVER\\HR-DOCS",
+        "\\SERVER\\HR-ARCHIVES"
+    )
+    "Public"  = "\\SERVER\\PUBLIC"
+}
+
+# Status file configuration
+$StatusFileDirectory = "$env:ProgramData\IntuneDriveMapping"
+$StatusFileName = "status.json"
+$StatusFilePath = Join-Path -Path $StatusFileDirectory -ChildPath $StatusFileName
+
+# --- Functions ---
+
+function Get-GraphApiToken {
+    $tokenUri = "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token"
+    Write-Output "Getting access token from $tokenUri..."
+    try {
+        $response = Invoke-RestMethod -Method Post -Uri $tokenUri -ContentType "application/x-www-form-urlencoded" -Body @{
+            grant_type    = "client_credentials"
+            client_id     = $ClientId
+            client_secret = $ClientSecret
+            scope         = "https://graph.microsoft.com/.default"
+        }
+        Write-Output "Successfully obtained access token."
+        return $response.access_token
+    } catch {
+        Write-Error "Failed to get Graph API access token. Error: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+function Get-AvailableDriveLetter {
+    $reserved = @('A','B','C','D')
+    $usedBySystem = (Get-CimInstance Win32_LogicalDisk).DeviceID | ForEach-Object { $_.TrimEnd(':') }
+    $usedInReg = (Get-ChildItem HKCU:\Network -ErrorAction SilentlyContinue).PSChildName
+    $used = $reserved + $usedBySystem + $usedInReg | Select-Object -Unique
+    $all = [char[]](67..90) # C to Z
+    return $all | Where-Object { $_ -notin $used } | Select-Object -First 1
+}
+
+# --- Script Start ---
+
+Write-Output "Starting drive mapping script."
+
+$token = Get-GraphApiToken
+if (-not $token) {
+    exit 1 # Stop the script if authentication fails
+}
 
 $headers = @{
     Authorization     = "Bearer $token"
     Consistencylevel  = "eventual"
 }
 
-$localUser = whoami
-$localUserName = $localUser.Split('\')[-1]
-$localUserEmail = "$localUserName@DOMAIN.com"
+# 1. Get user's groups
+try {
+    $localUser = $env:USERNAME
+    $userPrincipalName = "$localUser@$Domain"
+    Write-Output "Getting groups for user: $userPrincipalName"
 
-$userResponse = Invoke-RestMethod -Uri "https://graph.microsoft.com/v1.0/users/$localUserEmail" -Headers $headers -Method Get
-$UserId = $userResponse.id
+    $groupsUri = "https://graph.microsoft.com/v1.0/users/$userPrincipalName/transitiveMemberOf/microsoft.graph.group?`$filter=$GroupFilter&`$select=displayName"
+    $groupResponse = Invoke-RestMethod -Uri $groupsUri -Headers $headers -Method Get
+    $userGroupNames = $groupResponse.value.displayName
 
-$groupsUri = "https://graph.microsoft.com/v1.0/users/$UserId/transitiveMemberOf/microsoft.graph.group?`$count=true&`$filter=startswith(displayName, 'AZURE/AD_GROUPS') or startswith(displayName, 'ASYOUWANT')&`$top=999"
-
-$groups = Invoke-RestMethod -Uri $groupsUri -Headers $headers -Method Get
-$groupNames = $groups.value | Where-Object { $_.displayName -like "AZURE/AD_GROUPS*" -or $_.displayName -eq "AZURE/AD_GROUPS*" } | ForEach-Object { $_.displayName }
-
-$DriveMappings = @{
-    "AZURE/AD_GROUPS*_R1"                  = "Names1"
-    "AZURE/AD_GROUPS*_RW1"                 = "Names1"
-    "AZURE/AD_GROUPS*_R2"                  = "Names2"
-    "AZURE/AD_GROUPS*_RW2"                 = "Names2"
-    "AZURE/AD_GROUPS*_RW_DIRECTION"        = "DIRECTION"
-    "AZURE/AD_GROUPS*_R_DIRECTION"         = "DIRECTION"
-
+    Write-Output "Found groups: $($userGroupNames -join ', ')"
+} catch {
+    Write-Error "Failed to get groups for '$userPrincipalName'. Error: $($_.Exception.Message)"
+    exit 1
 }
 
-$NetworkShares = @{
-    "Names1"                        = "\\SERVEUR\PATH"
-    "Names2" = @( 
-	"\\SERVEUR\PATH2",
-	"\\SERVEUR\PATH3"
-	)
-}
-
-function Get-AvailableDriveLetter {
-    $reservedForDevices = @("A", "B", "C", "D")
-
-
-    $usedBySystem = (Get-CimInstance -ClassName Win32_LogicalDisk | Select-Object -ExpandProperty DeviceID) `
-                    | ForEach-Object { $_.TrimEnd(":") }
-
-
-    $usedInRegistry = @()
-    try {
-        $usedInRegistry = Get-ChildItem -Path "HKCU:\Network" | Select-Object -ExpandProperty PSChildName
-    } catch {
-        # Rien à faire si la clé n'existe pas encore
+# 2. Calculate required shares based on groups (Bug fix with -like)
+$requiredShareNames = @()
+foreach ($groupName in $userGroupNames) {
+    foreach ($mapping in $DriveMappings.GetEnumerator()) {
+        if ($groupName -like $mapping.Name) {
+            Write-Output "Match found: Group '$groupName' -> Mapping '$($mapping.Value)'"
+            $requiredShareNames += $mapping.Value
+        }
     }
-
-    $usedLetters = $usedBySystem + $usedInRegistry + $reservedForDevices
-    $usedLetters = $usedLetters | Select-Object -Unique
-
-    $allLetters = [char[]](67..90 | ForEach-Object { [char]$_ }) # C à Z
-    return $allLetters | Where-Object { $_ -notin $usedLetters } | Select-Object -First 1
 }
 
+# Add the "Public" drive by default
+$requiredShareNames += "Public"
+$requiredShareNames = $requiredShareNames | Select-Object -Unique
+Write-Output "Required logical share names: $($requiredShareNames -join ', ')"
 
-
-
-$groupsToMount = @()
-
-if ($groupNames -contains 'AZURE/AD_GROUPS*_R_DIRECTION' -or $groupNames -contains 'AZURE/AD_GROUPS*_RW_DIRECTION') {
-    $groupsToMount += $NetworkShares.Keys | Where-Object { $_ -ne 'EXCLUDED_GROUPS' }
-}
-else {
-    # Mapping standard
-    $groupsToMount = $groupNames |
-        ForEach-Object { $DriveMappings[$_] } |
-        Where-Object { $_ } |
-        Select-Object -Unique
-}
-
-
-if (-not ($groupNames -contains 'EXCLUDED_GROUPS') -and -not ($groupsToMount -contains 'PUBLIC')) {
-    $groupsToMount += 'PUBLIC'
-}
-
-
-$allowedShares = @()
-foreach ($group in $groupsToMount) {
-    if ($NetworkShares.ContainsKey($group)) {
-        $paths = $NetworkShares[$group]
+# Convert logical share names to UNC paths
+$requiredUncPaths = @()
+foreach ($shareName in $requiredShareNames) {
+    if ($NetworkShares.ContainsKey($shareName)) {
+        $paths = $NetworkShares[$shareName]
         if ($paths -is [array]) {
-            foreach ($p in $paths) {
-                if ($p -notin $allowedShares) {
-                    $allowedShares += $p
-                }
-            }
-        }
-        elseif ($paths -notin $allowedShares) {
-            $allowedShares += $paths
+            $requiredUncPaths += $paths
+        } else {
+            $requiredUncPaths += $paths
         }
     }
 }
+$requiredUncPaths = $requiredUncPaths | Select-Object -Unique
+Write-Output "Required UNC paths: $($requiredUncPaths -join ', ')"
 
-
-$mountedDrivesReg = Get-ChildItem -Path 'HKCU:\Network' | ForEach-Object {
-    $drive = $_.PSChildName
-    $remotePath = (Get-ItemProperty -Path $_.PsPath).RemotePath
-    [PSCustomObject]@{ DriveLetter = $drive; RemotePath = $remotePath }
-}
-
-$usedPaths = @{}
-foreach ($entry in $mountedDrivesReg) {
-    if ($allowedShares -notcontains $entry.RemotePath) {
-        Remove-PSDrive -Name $entry.DriveLetter -Force -ErrorAction SilentlyContinue
-    }
-    else {
-        $usedPaths[$entry.RemotePath] = $entry.DriveLetter
+# 3. Manage existing drives (unmapping)
+Write-Output "Analyzing existing network drives for removal..."
+$mappedDrives = Get-ChildItem -Path 'HKCU:\Network' -ErrorAction SilentlyContinue | ForEach-Object {
+    [PSCustomObject]@{
+        DriveLetter = $_.PSChildName
+        RemotePath  = (Get-ItemProperty -Path $_.PSPath).RemotePath
     }
 }
 
-
-function Get-AvailableDriveLetter {
-    $reserved = @('A','B','C','D')
-    $usedBySystem = Get-CimInstance Win32_LogicalDisk | Select-Object -Expand DeviceID | ForEach-Object { $_.TrimEnd(':') }
-    $usedInReg = Get-ChildItem HKCU:\Network -ErrorAction SilentlyContinue | Select-Object -Expand PSChildName
-    $used = $reserved + $usedBySystem + $usedInReg | Select-Object -Unique
-    $all = [char[]](67..90 | ForEach-Object {[char]$_})
-    return $all | Where-Object { $_ -notin $used } | Select-Object -First 1
+foreach ($drive in $mappedDrives) {
+    if ($requiredUncPaths -notcontains $drive.RemotePath) {
+        Write-Output "Removing drive '$($drive.DriveLetter)' mapped to '$($drive.RemotePath)' as it is no longer required."
+        Remove-PSDrive -Name $drive.DriveLetter -Force -ErrorAction SilentlyContinue
+    }
 }
 
-$currentDrives = Get-CimInstance Win32_LogicalDisk | Where-Object { $_.DriveType -eq 4 } | Select-Object -Expand ProviderName
+# 4. Map new drives
+Write-Output "Mapping required drives..."
+$currentlyMappedPaths = (Get-WmiObject -Class Win32_MappedLogicalDisk -ErrorAction SilentlyContinue).ProviderName
 
-foreach ($path in $allowedShares) {
-    if ($currentDrives -contains $path) { continue }
+foreach ($path in $requiredUncPaths) {
+    if ($currentlyMappedPaths -contains $path) {
+        Write-Output "Drive for '$path' is already mapped. Skipping."
+        continue
+    }
+
     $letter = Get-AvailableDriveLetter
     if ($letter) {
-        New-PSDrive -Name $letter -PSProvider FileSystem -Root $path -Persist -ErrorAction SilentlyContinue | Out-Null
+        Write-Output "Mapping '$path' to drive letter '$letter'..."
+        try {
+            New-PSDrive -Name $letter -PSProvider FileSystem -Root $path -Persist -ErrorAction Stop | Out-Null
+            Write-Output "Success: '$path' mapped to '$letter'."
+        } catch {
+            Write-Error "Failed to map '$path'. Error: $($_.Exception.Message)"
+        }
+    } else {
+        Write-Error "No available drive letter to map '$path'."
     }
 }
+
+# 5. Create the status file for detection
+Write-Output "Creating status file..."
+if (-not (Test-Path -Path $StatusFileDirectory)) {
+    New-Item -Path $StatusFileDirectory -ItemType Directory -Force | Out-Null
+}
+
+$status = @{
+    lastRunTimestamp = (Get-Date).ToString("o") # ISO 8601 format
+    requiredDrives   = $requiredUncPaths
+}
+$status | ConvertTo-Json | Set-Content -Path $StatusFilePath -Encoding UTF8
+
+Write-Output "Drive mapping script finished."
+exit 0
