@@ -42,17 +42,22 @@ Copy the following values to use in the script:
 *   **Application (client) ID**
 *   **Client secret Value**
 
-## 🔒 Secure Secret Management
+## 🔒 Authentication Methods
 
-It is crucial **not to store secrets in plain text** within the script. Here are two recommended methods:
+The script supports two methods for providing the App Registration credentials.
 
-1.  **Command-Line Parameters (Recommended for Intune)**
-    *   The `Map-Drive.ps1` script is designed to accept secrets as command-line arguments.
-    *   When deploying via Intune, you can pass these values securely.
+### 1. Direct Parameters (Standard Method)
+You can provide the `ClientId` and `ClientSecret` directly as command-line parameters. This is the standard and simplest way to use the script with Intune.
 
-2.  **Azure Key Vault (Advanced Solution)**
-    *   For maximum security, store the secrets in an Azure Key Vault.
-    *   The script can be modified to authenticate to the Key Vault (using a Managed Identity, for example) and retrieve the secrets at runtime.
+### 2. Azure Key Vault (Advanced Method)
+The script can fetch the credentials from an Azure Key Vault. This is recommended for environments where secrets are centrally managed.
+
+**Prerequisites for Key Vault:**
+*   The **user** running the script (or the **device**, if using a system identity) must have an Azure AD identity that is granted `Get` access to the secrets in your Key Vault.
+*   The `Az.Accounts` and `Az.KeyVault` PowerShell modules must be available. The script will attempt to install them for the current user if they are missing.
+*   Your Key Vault must contain two secrets with the following **exact names**:
+    *   `IntuneDriveMapper-ClientId` (containing the Application Client ID)
+    *   `IntuneDriveMapper-ClientSecret` (containing the Client Secret value)
 
 ## 🔁 Logic Overview
 
@@ -79,12 +84,19 @@ It is crucial **not to store secrets in plain text** within the script. Here are
 1.  In the Microsoft Endpoint Manager admin center, go to:
     **Apps > Windows > + Add > Windows app (Win32)**.
 2.  Upload the `.intunewin` package you created.
-3.  On the **Program** tab, configure the install command. This is where you pass the secrets as parameters:
+3.  On the **Program** tab, configure the install command. Choose one of the two methods below.
 
+    **Method A: Using Direct Parameters**
     ```powershell
-    powershell.exe -ExecutionPolicy Bypass -File .\\Map-Drive.ps1 -TenantId "YOUR_TENANT_ID" -ClientId "YOUR_CLIENT_ID" -ClientSecret "YOUR_SECRET" -Domain "YOUR_DOMAIN.com"
+    powershell.exe -ExecutionPolicy Bypass -File .\\Map-Drive.ps1 -TenantId "YOUR_TENANT_ID" -Domain "YOUR_DOMAIN.com" -ClientId "YOUR_CLIENT_ID" -ClientSecret "YOUR_SECRET"
     ```
     *Replace the placeholders with your actual values.*
+
+    **Method B: Using Azure Key Vault**
+    ```powershell
+    powershell.exe -ExecutionPolicy Bypass -File .\\Map-Drive.ps1 -TenantId "YOUR_TENANT_ID" -Domain "YOUR_DOMAIN.com" -KeyVaultName "YOUR_KEY_VAULT_NAME"
+    ```
+    *Replace `YOUR_KEY_VAULT_NAME` with the name of your vault.*
 
 4.  Configure the uninstall command (optional).
 5.  Under **Detection rules**, select **Use a custom script** and upload `Detect-Drives.ps1`.

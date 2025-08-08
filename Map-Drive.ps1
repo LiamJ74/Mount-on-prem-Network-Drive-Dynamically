@@ -1,34 +1,43 @@
 <#
 .SYNOPSIS
-    Maps network drives based on Azure AD group membership.
+    Maps network drives based on Azure AD group membership, with optional Azure Key Vault integration.
 .DESCRIPTION
     This script, intended for deployment via Intune, determines a user's Azure AD groups,
     maps corresponding network drives according to a defined configuration, removes old mappings,
     and creates a status file for the detection script.
+    It can receive secrets directly as parameters or fetch them from an Azure Key Vault.
 .PARAMETER TenantId
-    The Azure AD Tenant ID.
-.PARAMETER ClientId
-    The Client ID of the registered Azure AD application.
-.PARAMETER ClientSecret
-    The client secret for the Azure AD application.
+    The Azure AD Tenant ID. Mandatory.
 .PARAMETER Domain
-    The company domain used to construct the user's UPN (e.g., "yourdomain.com").
+    The company domain used to construct the user's UPN (e.g., "yourdomain.com"). Mandatory.
+.PARAMETER KeyVaultName
+    Optional. The name of the Azure Key Vault to retrieve secrets from. If used, ClientId and ClientSecret are ignored.
+.PARAMETER ClientId
+    The Client ID of the registered Azure AD application. Mandatory if not using Key Vault.
+.PARAMETER ClientSecret
+    The client secret for the Azure AD application. Mandatory if not using Key Vault.
 #>
 param(
     [Parameter(Mandatory=$true)]
     [string]$TenantId,
     [Parameter(Mandatory=$true)]
+    [string]$Domain,
+    [Parameter(Mandatory=$false)]
+    [string]$KeyVaultName,
+    [Parameter(Mandatory=$false)]
     [string]$ClientId,
-    [Parameter(Mandatory=$true)]
-    [string]$ClientSecret,
-    [Parameter(Mandatory=$true)]
-    [string]$Domain
+    [Parameter(Mandatory=$false)]
+    [string]$ClientSecret
 )
 
 # --- Configuration ---
 
 # Filter for searching groups in Graph API. Modify as needed.
 $GroupFilter = "startswith(displayName, 'AZURE/AD_GROUPS')"
+
+# Secret names to look for in Azure Key Vault.
+$ClientIdSecretName = 'IntuneDriveMapper-ClientId'
+$ClientSecretSecretName = 'IntuneDriveMapper-ClientSecret'
 
 # Maps a group name (with wildcard *) to a logical share name.
 $DriveMappings = @{
@@ -55,14 +64,58 @@ $StatusFilePath = Join-Path -Path $StatusFileDirectory -ChildPath $StatusFileNam
 
 # --- Functions ---
 
+function Install-AzModule {
+    param($ModuleName)
+    if (-not (Get-Module -ListAvailable -Name $ModuleName)) {
+        Write-Output "PowerShell module '$ModuleName' not found. Attempting to install..."
+        try {
+            Install-Module -Name $ModuleName -Scope CurrentUser -Repository PSGallery -Force -ErrorAction Stop
+            Write-Output "Module '$ModuleName' installed successfully."
+        } catch {
+            Write-Error "Failed to install module '$ModuleName'. Error: $($_.Exception.Message)"
+            return $false
+        }
+    } else {
+        Write-Output "PowerShell module '$ModuleName' is already installed."
+    }
+    return $true
+}
+
+function Get-SecretsFromKeyVault {
+    Write-Output "Attempting to retrieve secrets from Azure Key Vault '$KeyVaultName'..."
+    if (-not (Install-AzModule -ModuleName Az.Accounts)) { return $null }
+    if (-not (Install-AzModule -ModuleName Az.KeyVault)) { return $null }
+
+    try {
+        Write-Output "Connecting to Azure with user's identity..."
+        Connect-AzAccount -Identity -ErrorAction Stop
+        Write-Output "Successfully connected to Azure."
+    } catch {
+        Write-Error "Failed to connect to Azure using Managed Identity. Ensure the user has an identity and permissions. Error: $($_.Exception.Message)"
+        return $null
+    }
+
+    try {
+        Write-Output "Retrieving secrets from Key Vault..."
+        $kvClientId = (Get-AzKeyVaultSecret -VaultName $KeyVaultName -Name $ClientIdSecretName -AsPlainText -ErrorAction Stop)
+        $kvClientSecret = (Get-AzKeyVaultSecret -VaultName $KeyVaultName -Name $ClientSecretSecretName -AsPlainText -ErrorAction Stop)
+        Write-Output "Successfully retrieved secrets from Key Vault."
+        return @{ ClientId = $kvClientId; ClientSecret = $kvClientSecret }
+    } catch {
+        Write-Error "Failed to retrieve secrets from Key Vault '$KeyVaultName'. Check secret names and permissions. Error: $($_.Exception.Message)"
+        return $null
+    }
+}
+
 function Get-GraphApiToken {
+    param($GatClientId, $GatClientSecret)
     $tokenUri = "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token"
     Write-Output "Getting access token from $tokenUri..."
     try {
         $response = Invoke-RestMethod -Method Post -Uri $tokenUri -ContentType "application/x-www-form-urlencoded" -Body @{
             grant_type    = "client_credentials"
-            client_id     = $ClientId
-            client_secret = $ClientSecret
+            client_id     = $GatClientId
+            client_secret = $GatClientSecret
             scope         = "https://graph.microsoft.com/.default"
         }
         Write-Output "Successfully obtained access token."
@@ -86,9 +139,24 @@ function Get-AvailableDriveLetter {
 
 Write-Output "Starting drive mapping script."
 
-$token = Get-GraphApiToken
+# 1. Validate parameters and retrieve secrets
+if ($PSBoundParameters.ContainsKey('KeyVaultName')) {
+    $secrets = Get-SecretsFromKeyVault
+    if (-not $secrets) {
+        Write-Error "Could not retrieve secrets from Key Vault. Exiting."
+        exit 1
+    }
+    $ClientId = $secrets.ClientId
+    $ClientSecret = $secrets.ClientSecret
+} elseif (-not ($PSBoundParameters.ContainsKey('ClientId') -and $PSBoundParameters.ContainsKey('ClientSecret'))) {
+    Write-Error "Invalid parameters. You must provide either -KeyVaultName or both -ClientId and -ClientSecret. Exiting."
+    exit 1
+}
+
+# 2. Get Graph API Token
+$token = Get-GraphApiToken -GatClientId $ClientId -GatClientSecret $ClientSecret
 if (-not $token) {
-    exit 1 # Stop the script if authentication fails
+    exit 1
 }
 
 $headers = @{
@@ -96,62 +164,45 @@ $headers = @{
     Consistencylevel  = "eventual"
 }
 
-# 1. Get user's groups
+# 3. Get user's groups
 try {
     $localUser = $env:USERNAME
     $userPrincipalName = "$localUser@$Domain"
     Write-Output "Getting groups for user: $userPrincipalName"
-
     $groupsUri = "https://graph.microsoft.com/v1.0/users/$userPrincipalName/transitiveMemberOf/microsoft.graph.group?`$filter=$GroupFilter&`$select=displayName"
     $groupResponse = Invoke-RestMethod -Uri $groupsUri -Headers $headers -Method Get
     $userGroupNames = $groupResponse.value.displayName
-
     Write-Output "Found groups: $($userGroupNames -join ', ')"
 } catch {
     Write-Error "Failed to get groups for '$userPrincipalName'. Error: $($_.Exception.Message)"
     exit 1
 }
 
-# 2. Calculate required shares based on groups (Bug fix with -like)
+# 4. Calculate required shares
 $requiredShareNames = @()
 foreach ($groupName in $userGroupNames) {
     foreach ($mapping in $DriveMappings.GetEnumerator()) {
         if ($groupName -like $mapping.Name) {
-            Write-Output "Match found: Group '$groupName' -> Mapping '$($mapping.Value)'"
             $requiredShareNames += $mapping.Value
         }
     }
 }
-
-# Add the "Public" drive by default
 $requiredShareNames += "Public"
 $requiredShareNames = $requiredShareNames | Select-Object -Unique
-Write-Output "Required logical share names: $($requiredShareNames -join ', ')"
-
-# Convert logical share names to UNC paths
 $requiredUncPaths = @()
 foreach ($shareName in $requiredShareNames) {
     if ($NetworkShares.ContainsKey($shareName)) {
         $paths = $NetworkShares[$shareName]
-        if ($paths -is [array]) {
-            $requiredUncPaths += $paths
-        } else {
-            $requiredUncPaths += $paths
-        }
+        if ($paths -is [array]) { $requiredUncPaths += $paths } else { $requiredUncPaths += $paths }
     }
 }
 $requiredUncPaths = $requiredUncPaths | Select-Object -Unique
 Write-Output "Required UNC paths: $($requiredUncPaths -join ', ')"
 
-# 3. Manage existing drives (unmapping)
-Write-Output "Analyzing existing network drives for removal..."
+# 5. Manage existing drives (unmapping)
 $mappedDrives = Get-ChildItem -Path 'HKCU:\Network' -ErrorAction SilentlyContinue | ForEach-Object {
-    [PSCustomObject]@{
-        DriveLetter = $_.PSChildName
-        RemotePath  = (Get-ItemProperty -Path $_.PSPath).RemotePath
-    }
+    [PSCustomObject]@{ DriveLetter = $_.PSChildName; RemotePath  = (Get-ItemProperty -Path $_.PSPath).RemotePath }
 }
-
 foreach ($drive in $mappedDrives) {
     if ($requiredUncPaths -notcontains $drive.RemotePath) {
         Write-Output "Removing drive '$($drive.DriveLetter)' mapped to '$($drive.RemotePath)' as it is no longer required."
@@ -159,22 +210,18 @@ foreach ($drive in $mappedDrives) {
     }
 }
 
-# 4. Map new drives
-Write-Output "Mapping required drives..."
+# 6. Map new drives
 $currentlyMappedPaths = (Get-WmiObject -Class Win32_MappedLogicalDisk -ErrorAction SilentlyContinue).ProviderName
-
 foreach ($path in $requiredUncPaths) {
     if ($currentlyMappedPaths -contains $path) {
         Write-Output "Drive for '$path' is already mapped. Skipping."
         continue
     }
-
     $letter = Get-AvailableDriveLetter
     if ($letter) {
         Write-Output "Mapping '$path' to drive letter '$letter'..."
         try {
             New-PSDrive -Name $letter -PSProvider FileSystem -Root $path -Persist -ErrorAction Stop | Out-Null
-            Write-Output "Success: '$path' mapped to '$letter'."
         } catch {
             Write-Error "Failed to map '$path'. Error: $($_.Exception.Message)"
         }
@@ -183,16 +230,12 @@ foreach ($path in $requiredUncPaths) {
     }
 }
 
-# 5. Create the status file for detection
+# 7. Create the status file
 Write-Output "Creating status file..."
 if (-not (Test-Path -Path $StatusFileDirectory)) {
     New-Item -Path $StatusFileDirectory -ItemType Directory -Force | Out-Null
 }
-
-$status = @{
-    lastRunTimestamp = (Get-Date).ToString("o") # ISO 8601 format
-    requiredDrives   = $requiredUncPaths
-}
+$status = @{ lastRunTimestamp = (Get-Date).ToString("o"); requiredDrives = $requiredUncPaths }
 $status | ConvertTo-Json | Set-Content -Path $StatusFilePath -Encoding UTF8
 
 Write-Output "Drive mapping script finished."
