@@ -20,8 +20,6 @@
 param(
     [Parameter(Mandatory=$true)]
     [string]$TenantId,
-    [Parameter(Mandatory=$true)]
-    [string]$Domain,
     [Parameter(Mandatory=$false)]
     [string]$KeyVaultName,
     [Parameter(Mandatory=$false)]
@@ -31,9 +29,6 @@ param(
 )
 
 # --- Configuration ---
-
-# Filter for searching groups in Graph API. Modify as needed.
-$GroupFilter = "startswith(displayName, 'AZURE/AD_GROUPS')"
 
 # Secret names to look for in Azure Key Vault.
 $ClientIdSecretName = 'IntuneDriveMapper-ClientId'
@@ -166,24 +161,29 @@ $headers = @{
 
 # 3. Get user's groups
 try {
-    $localUser = $env:USERNAME
-    $userPrincipalName = "$localUser@$Domain"
-    Write-Output "Getting groups for user: $userPrincipalName"
+    # Get current user and construct UPN
+    $localUser = whoami
+    $localUserName = $localUser.Split('\')[-1]
+    # !!! IMPORTANT: Replace "YOUR_DOMAIN.com" with your actual domain name.
+    $userPrincipalName = "$localUserName@YOUR_DOMAIN.com"
+    Write-Output "Getting user object for: $userPrincipalName"
 
-    # The 'transitiveMemberOf' endpoint does not support $filter. Groups must be filtered client-side.
-    $groupsUri = "https://graph.microsoft.com/v1.0/users/$userPrincipalName/transitiveMemberOf/microsoft.graph.group?`$select=displayName&`$top=999"
+    # Get User ID from Graph API
+    $userUri = "https://graph.microsoft.com/v1.0/users/$userPrincipalName"
+    $userResponse = Invoke-RestMethod -Uri $userUri -Headers $headers -Method Get
+    $userId = $userResponse.id
+    Write-Output "Found User ID: $userId"
+
+    # Get all user's group memberships using the User ID
+    Write-Output "Getting all groups for user ID: $userId"
+    $groupsUri = "https://graph.microsoft.com/v1.0/users/$userId/transitiveMemberOf/microsoft.graph.group?`$select=displayName&`$top=999"
     $groupResponse = Invoke-RestMethod -Uri $groupsUri -Headers $headers -Method Get
-
-    # Convert the Graph API filter string to a PowerShell wildcard pattern.
-    # e.g., "startswith(displayName, 'AZURE/AD_GROUPS')" becomes "AZURE/AD_GROUPS*"
-    $wildcardPattern = $GroupFilter.Replace("startswith(displayName, '", "").Replace("')", "*")
-
-    $userGroupNames = $groupResponse.value | Where-Object { $_.displayName -like $wildcardPattern } | Select-Object -ExpandProperty displayName
+    $userGroupNames = $groupResponse.value.displayName
 
     if ($userGroupNames) {
-        Write-Output "Found matching groups: $($userGroupNames -join ', ')"
+        Write-Output "Found $($userGroupNames.Count) groups in total."
     } else {
-        Write-Output "User is not a member of any matching groups."
+        Write-Output "User is not a member of any groups."
     }
 } catch {
     $errorMessage = $_.Exception.Message
