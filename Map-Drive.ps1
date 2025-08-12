@@ -174,7 +174,12 @@ try {
     $userGroupNames = $groupResponse.value.displayName
     Write-Output "Found groups: $($userGroupNames -join ', ')"
 } catch {
-    Write-Error "Failed to get groups for '$userPrincipalName'. Error: $($_.Exception.Message)"
+    $errorMessage = $_.Exception.Message
+    if ($errorMessage -like "*401*" -or $errorMessage -like "*Unauthorized*") {
+        Write-Error "Failed to get groups for '$userPrincipalName'. The server returned a 401 Unauthorized error. This is likely due to incorrect API permissions on the Azure AD App Registration. Please ensure the application has the 'GroupMember.Read.All' and 'User.Read.All' APPLICATION permissions and that admin consent has been granted. Refer to the README.md for instructions."
+    } else {
+        Write-Error "Failed to get groups for '$userPrincipalName'. Error: $errorMessage"
+    }
     exit 1
 }
 
