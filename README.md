@@ -131,6 +131,29 @@ $NetworkShares = @{
 *   Manually run `Detect-Drives.ps1` on a test machine to validate the detection logic.
 *   Use the Intune logs (`IntuneManagementExtension.log`, `AgentExecutor.log`) for troubleshooting.
 
+## 🩺 Troubleshooting
+
+If the script fails or appears to hang, you can run it manually from a PowerShell terminal to diagnose the issue. The script now includes detailed debugging messages to help pinpoint the problem.
+
+### How to Run for Debugging
+
+1.  Open a PowerShell terminal on a test machine.
+2.  Navigate to the directory containing the `Map-Drive.ps1` script.
+3.  Run the script using the same command line you configured in Intune. For example:
+    ```powershell
+    powershell.exe -ExecutionPolicy Bypass -File .\\Map-Drive.ps1 -TenantId "YOUR_TENANT_ID" -ClientId "YOUR_CLIENT_ID" -ClientSecret "YOUR_SECRET"
+    ```
+
+### Interpreting the Debug Output
+
+The script will print messages with timestamps. Look at the last message printed before the script hangs. This will tell you which step is failing.
+
+*   **`DEBUG: Attempting to get Graph API token...`**: The script is trying to authenticate. If it hangs here, check for firewall or proxy issues that might be blocking the connection to `login.microsoftonline.com`.
+*   **`DEBUG: Getting user object ID from Graph API...`**: The script is trying to find the user in Azure AD. If it hangs here, the Graph API call to get the user might be failing.
+*   **`DEBUG: Getting all groups for user ID...`**: The script is trying to retrieve the user's group memberships. This can take time if the user is in many groups. If it hangs here for a very long time, there might be an issue with the Graph API service.
+
+If the script fails with a `401 Unauthorized` error, refer to the "Prerequisite: App Registration in Azure AD" section to ensure your API permissions are correct.
+
 ## ✅ Result
 
 *   Fully automated network drive mapping based on Azure AD groups.
