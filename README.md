@@ -30,10 +30,12 @@ Once the application is created:
 
 4.  Go to **Certificates & secrets > + New client secret**.
     *   Make a note of the secret's **Value**. It will not be visible again after you leave the page.
-5.  Go to **API Permissions > + Add a permission > Microsoft Graph > Delegated permissions**:
-    *   `GroupMember.Read.All`
-    *   `User.Read`
-6.  Click **Grant admin consent**.
+5.  Go to **API Permissions > + Add a permission > Microsoft Graph > Application permissions**:
+    *   `GroupMember.Read.All` – Allows the app to read group memberships.
+    *   `User.Read.All` – Allows the app to read basic properties of all users.
+    > **Note:** The script uses application permissions (app-only context) and not delegated permissions. Ensure you are adding the correct type.
+
+6.  Click **Grant admin consent for [Your Tenant]**. This step is crucial and must be performed by an administrator.
 
 ### 🔑 Information to Collect
 
