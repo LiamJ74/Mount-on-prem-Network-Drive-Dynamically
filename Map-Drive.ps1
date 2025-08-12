@@ -169,10 +169,22 @@ try {
     $localUser = $env:USERNAME
     $userPrincipalName = "$localUser@$Domain"
     Write-Output "Getting groups for user: $userPrincipalName"
-    $groupsUri = "https://graph.microsoft.com/v1.0/users/$userPrincipalName/transitiveMemberOf/microsoft.graph.group?`$filter=$GroupFilter&`$select=displayName"
+
+    # The 'transitiveMemberOf' endpoint does not support $filter. Groups must be filtered client-side.
+    $groupsUri = "https://graph.microsoft.com/v1.0/users/$userPrincipalName/transitiveMemberOf/microsoft.graph.group?`$select=displayName&`$top=999"
     $groupResponse = Invoke-RestMethod -Uri $groupsUri -Headers $headers -Method Get
-    $userGroupNames = $groupResponse.value.displayName
-    Write-Output "Found groups: $($userGroupNames -join ', ')"
+
+    # Convert the Graph API filter string to a PowerShell wildcard pattern.
+    # e.g., "startswith(displayName, 'AZURE/AD_GROUPS')" becomes "AZURE/AD_GROUPS*"
+    $wildcardPattern = $GroupFilter.Replace("startswith(displayName, '", "").Replace("')", "*")
+
+    $userGroupNames = $groupResponse.value | Where-Object { $_.displayName -like $wildcardPattern } | Select-Object -ExpandProperty displayName
+
+    if ($userGroupNames) {
+        Write-Output "Found matching groups: $($userGroupNames -join ', ')"
+    } else {
+        Write-Output "User is not a member of any matching groups."
+    }
 } catch {
     $errorMessage = $_.Exception.Message
     if ($errorMessage -like "*401*" -or $errorMessage -like "*Unauthorized*") {
