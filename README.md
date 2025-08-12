@@ -90,13 +90,13 @@ The script can fetch the credentials from an Azure Key Vault. This is recommende
 
     **Method A: Using Direct Parameters**
     ```powershell
-    powershell.exe -ExecutionPolicy Bypass -File .\\Map-Drive.ps1 -TenantId "YOUR_TENANT_ID" -Domain "YOUR_DOMAIN.com" -ClientId "YOUR_CLIENT_ID" -ClientSecret "YOUR_SECRET"
+    powershell.exe -ExecutionPolicy Bypass -File .\\Map-Drive.ps1 -TenantId "YOUR_TENANT_ID" -ClientId "YOUR_CLIENT_ID" -ClientSecret "YOUR_SECRET"
     ```
     *Replace the placeholders with your actual values.*
 
     **Method B: Using Azure Key Vault**
     ```powershell
-    powershell.exe -ExecutionPolicy Bypass -File .\\Map-Drive.ps1 -TenantId "YOUR_TENANT_ID" -Domain "YOUR_DOMAIN.com" -KeyVaultName "YOUR_KEY_VAULT_NAME"
+    powershell.exe -ExecutionPolicy Bypass -File .\\Map-Drive.ps1 -TenantId "YOUR_TENANT_ID" -KeyVaultName "YOUR_KEY_VAULT_NAME"
     ```
     *Replace `YOUR_KEY_VAULT_NAME` with the name of your vault.*
 
