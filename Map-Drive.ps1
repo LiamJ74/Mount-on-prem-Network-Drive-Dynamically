@@ -105,7 +105,7 @@ function Get-SecretsFromKeyVault {
 function Get-GraphApiToken {
     param($GatClientId, $GatClientSecret)
     $tokenUri = "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token"
-    Write-Output "Getting access token from $tokenUri..."
+    Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Attempting to get Graph API token..."
     try {
         $response = Invoke-RestMethod -Method Post -Uri $tokenUri -ContentType "application/x-www-form-urlencoded" -Body @{
             grant_type    = "client_credentials"
@@ -113,7 +113,7 @@ function Get-GraphApiToken {
             client_secret = $GatClientSecret
             scope         = "https://graph.microsoft.com/.default"
         }
-        Write-Output "Successfully obtained access token."
+        Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Successfully obtained access token."
         return $response.access_token
     } catch {
         Write-Error "Failed to get Graph API access token. Error: $($_.Exception.Message)"
@@ -132,7 +132,7 @@ function Get-AvailableDriveLetter {
 
 # --- Script Start ---
 
-Write-Output "Starting drive mapping script."
+Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Script execution started."
 
 # 1. Validate parameters and retrieve secrets
 if ($PSBoundParameters.ContainsKey('KeyVaultName')) {
@@ -166,24 +166,26 @@ try {
     $localUserName = $localUser.Split('\')[-1]
     # !!! IMPORTANT: Replace "YOUR_DOMAIN.com" with your actual domain name.
     $userPrincipalName = "$localUserName@YOUR_DOMAIN.com"
-    Write-Output "Getting user object for: $userPrincipalName"
+    Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Constructed UPN: $userPrincipalName"
 
     # Get User ID from Graph API
+    Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Getting user object ID from Graph API..."
     $userUri = "https://graph.microsoft.com/v1.0/users/$userPrincipalName"
     $userResponse = Invoke-RestMethod -Uri $userUri -Headers $headers -Method Get
     $userId = $userResponse.id
-    Write-Output "Found User ID: $userId"
+    Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Found User ID: $userId"
 
     # Get all user's group memberships using the User ID
-    Write-Output "Getting all groups for user ID: $userId"
+    Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Getting all groups for user ID: $userId..."
     $groupsUri = "https://graph.microsoft.com/v1.0/users/$userId/transitiveMemberOf/microsoft.graph.group?`$select=displayName&`$top=999"
     $groupResponse = Invoke-RestMethod -Uri $groupsUri -Headers $headers -Method Get
     $userGroupNames = $groupResponse.value.displayName
+    Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Group retrieval complete."
 
     if ($userGroupNames) {
-        Write-Output "Found $($userGroupNames.Count) groups in total."
+        Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Found $($userGroupNames.Count) groups in total."
     } else {
-        Write-Output "User is not a member of any groups."
+        Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: User is not a member of any groups."
     }
 } catch {
     $errorMessage = $_.Exception.Message
@@ -255,5 +257,5 @@ if (-not (Test-Path -Path $StatusFileDirectory)) {
 $status = @{ lastRunTimestamp = (Get-Date).ToString("o"); requiredDrives = $requiredUncPaths }
 $status | ConvertTo-Json | Set-Content -Path $StatusFilePath -Encoding UTF8
 
-Write-Output "Drive mapping script finished."
+Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Drive mapping script finished."
 exit 0
