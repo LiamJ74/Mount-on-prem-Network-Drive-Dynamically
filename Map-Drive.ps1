@@ -20,6 +20,8 @@
 param(
     [Parameter(Mandatory=$true)]
     [string]$TenantId,
+    [Parameter(Mandatory=$true)]
+    [string]$Domain,
     [Parameter(Mandatory=$false)]
     [string]$KeyVaultName,
     [Parameter(Mandatory=$false)]
@@ -162,10 +164,8 @@ $headers = @{
 # 3. Get user's groups
 try {
     # Get current user and construct UPN
-    $localUser = whoami
-    $localUserName = $localUser.Split('\')[-1]
-    # !!! IMPORTANT: Replace "YOUR_DOMAIN.com" with your actual domain name.
-    $userPrincipalName = "$localUserName@YOUR_DOMAIN.com"
+    $localUser = $env:USERNAME
+    $userPrincipalName = "$localUser@$Domain"
     Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Constructed UPN: $userPrincipalName"
 
     # Get User ID from Graph API
