@@ -135,6 +135,15 @@ function Get-AvailableDriveLetter {
 Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Script execution started."
 
 # 1. Validate parameters and retrieve secrets
+
+# If ClientSecret parameter is not provided, try to get it from the environment variable
+if (-not $PSBoundParameters.ContainsKey('ClientSecret')) {
+    if ($env:INTUNE_CLIENT_SECRET) {
+        Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Using client secret from environment variable."
+        $ClientSecret = $env:INTUNE_CLIENT_SECRET
+    }
+}
+
 if ($PSBoundParameters.ContainsKey('KeyVaultName')) {
     $secrets = Get-SecretsFromKeyVault
     if (-not $secrets) {
@@ -143,8 +152,8 @@ if ($PSBoundParameters.ContainsKey('KeyVaultName')) {
     }
     $ClientId = $secrets.ClientId
     $ClientSecret = $secrets.ClientSecret
-} elseif (-not ($PSBoundParameters.ContainsKey('ClientId') -and $PSBoundParameters.ContainsKey('ClientSecret'))) {
-    Write-Error "Invalid parameters. You must provide either -KeyVaultName or both -ClientId and -ClientSecret. Exiting."
+} elseif (-not ($PSBoundParameters.ContainsKey('ClientId') -and $ClientSecret)) {
+    Write-Error "Invalid parameters. You must provide either -KeyVaultName, or both -ClientId and -ClientSecret (or set the INTUNE_CLIENT_SECRET environment variable). Exiting."
     exit 1
 }
 
