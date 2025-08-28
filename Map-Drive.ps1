@@ -229,24 +229,35 @@ foreach ($shareName in $requiredShareNames) {
 $requiredUncPaths = $requiredUncPaths | Select-Object -Unique
 Write-Output "Required UNC paths: $($requiredUncPaths -join ', ')"
 
-# 5. Manage existing drives (unmapping)
-$mappedDrives = Get-ChildItem -Path 'HKCU:\Network' -ErrorAction SilentlyContinue | ForEach-Object {
-    [PSCustomObject]@{ DriveLetter = $_.PSChildName; RemotePath  = (Get-ItemProperty -Path $_.PSPath).RemotePath }
-}
-foreach ($drive in $mappedDrives) {
-    if ($requiredUncPaths -notcontains $drive.RemotePath) {
-        Write-Output "Removing drive '$($drive.DriveLetter)' mapped to '$($drive.RemotePath)' as it is no longer required."
-        Remove-PSDrive -Name $drive.DriveLetter -Force -ErrorAction SilentlyContinue
+# 5. Get currently mapped network drives using a reliable method
+$currentMappings = Get-PSDrive | Where-Object { $_.Provider.Name -eq 'FileSystem' -and $_.Root.StartsWith('\\') }
+
+# 6. Unmap unnecessary drives
+Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Checking for unnecessary drives to unmap..."
+foreach ($mapping in $currentMappings) {
+    # Normalize the path from Get-PSDrive (it might have a trailing '\')
+    $normalizedRemotePath = $mapping.Root.TrimEnd('\')
+    if ($requiredUncPaths -notcontains $normalizedRemotePath) {
+        Write-Output "Removing drive '$($mapping.Name)' mapped to '$($mapping.Root)' as it is no longer required."
+        try {
+            Remove-PSDrive -Name $mapping.Name -Force -ErrorAction Stop
+        } catch {
+            Write-Error "Failed to remove drive '$($mapping.Name)'. Error: $($_.Exception.Message)"
+        }
     }
 }
 
-# 6. Map new drives
-$currentlyMappedPaths = $mappedDrives.RemotePath
+# 7. Map new drives
+Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Checking for required drives to map..."
+# Get a fresh list of mapped paths after any unmapping operations
+$currentlyMappedPaths = (Get-PSDrive | Where-Object { $_.Provider.Name -eq 'FileSystem' -and $_.Root.StartsWith('\\') }).Root | ForEach-Object { $_.TrimEnd('\') }
+
 foreach ($path in $requiredUncPaths) {
     if ($currentlyMappedPaths -contains $path) {
         Write-Output "Drive for '$path' is already mapped. Skipping."
         continue
     }
+
     $letter = Get-AvailableDriveLetter
     if ($letter) {
         Write-Output "Mapping '$path' to drive letter '$letter'..."
@@ -260,7 +271,7 @@ foreach ($path in $requiredUncPaths) {
     }
 }
 
-# 7. Create the status file
+# 8. Create the status file
 Write-Output "Creating status file..."
 if (-not (Test-Path -Path $StatusFileDirectory)) {
     New-Item -Path $StatusFileDirectory -ItemType Directory -Force | Out-Null
