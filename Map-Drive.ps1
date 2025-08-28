@@ -194,7 +194,7 @@ try {
     do {
         $groupResponse = Invoke-RestMethod -Uri $groupsUri -Headers $headers -Method Get
         if ($null -ne $groupResponse.value) {
-            $allGroups.AddRange($groupResponse.value.displayName)
+            $allGroups.AddRange([string[]]$groupResponse.value.displayName)
         }
         $groupsUri = $groupResponse.'@odata.nextLink'
     } while (-not [string]::IsNullOrEmpty($groupsUri))
