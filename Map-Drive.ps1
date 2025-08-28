@@ -245,7 +245,31 @@ foreach ($shareName in $requiredShareNames) {
 $requiredUncPaths = $requiredUncPaths | ForEach-Object { Normalize-UncPath $_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
 Write-Output "Required UNC paths: $($requiredUncPaths -join ', ')"
 
-# 5. Get all currently mapped network drives using a reliable method
+# 5. Clean up existing drive mappings
+Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Analyzing existing drive mappings..."
+$currentMappings = Get-CimInstance -ClassName Win32_NetworkConnection
+
+# 5a. Remove duplicate mappings (same UNC path mapped to multiple letters)
+if ($null -ne $currentMappings) {
+    $mappingsByUnc = $currentMappings | Group-Object -Property { Normalize-UncPath -Path $_.RemoteName }
+    foreach ($group in $mappingsByUnc) {
+        if ($group.Count -gt 1) {
+            $mappingsToKeep = $group.Group | Select-Object -First 1
+            $mappingsToRemove = $group.Group | Select-Object -Skip 1
+            Write-Warning "Found duplicate mappings for UNC path '$($group.Name)'. Keeping drive '$($mappingsToKeep.LocalName)' and removing others."
+            foreach ($mappingToRemove in $mappingsToRemove) {
+                Write-Output "Removing duplicate drive '$($mappingToRemove.LocalName)' mapped to '$($mappingToRemove.RemoteName)'."
+                try {
+                    (New-Object -ComObject WScript.Network).RemoveNetworkDrive($mappingToRemove.LocalName, $true, $true)
+                } catch {
+                    Write-Error "Failed to remove duplicate drive '$($mappingToRemove.LocalName)'. Error: $($_.Exception.Message)"
+                }
+            }
+        }
+    }
+}
+
+# 5b. Get a fresh list of mappings and prepare for unmapping unnecessary drives
 $currentMappings = Get-CimInstance -ClassName Win32_NetworkConnection
 $currentlyMappedPaths = @()
 if ($null -ne $currentMappings) {
