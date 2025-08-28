@@ -90,7 +90,7 @@ The script can fetch the credentials from an Azure Key Vault. This is recommende
 
     **Method A: Using Direct Parameters**
     ```powershell
-    powershell.exe -ExecutionPolicy Bypass -File .\\Map-Drive.ps1 -TenantId "YOUR_TENANT_ID" -ClientId "YOUR_CLIENT_ID" -ClientSecret "YOUR_SECRET"
+    powershell.exe -ExecutionPolicy Bypass -File .\\Map-Drive.ps1 -Domain "YOUR_DOMAIN.com" -TenantId "YOUR_TENANT_ID" -ClientId "YOUR_CLIENT_ID" -ClientSecret "YOUR_SECRET"
     ```
     *Replace the placeholders with your actual values.*
 
@@ -126,31 +126,39 @@ $NetworkShares = @{
 }
 ```
 
-## 🧪 Testing
+## 🧪 Testing & Troubleshooting
 
-*   Manually run `Detect-Drives.ps1` on a test machine to validate the detection logic.
-*   Use the Intune logs (`IntuneManagementExtension.log`, `AgentExecutor.log`) for troubleshooting.
+To test the script or troubleshoot issues, you can run it manually from a PowerShell terminal. This is the best way to diagnose problems.
 
-## 🩺 Troubleshooting
+### How to Run for Local Testing
 
-If the script fails or appears to hang, you can run it manually from a PowerShell terminal to diagnose the issue. The script now includes detailed debugging messages to help pinpoint the problem.
-
-### How to Run for Debugging
-
-1.  Open a PowerShell terminal on a test machine.
-2.  Navigate to the directory containing the `Map-Drive.ps1` script.
-3.  Run the script using the same command line you configured in Intune. For example:
+1.  **Open PowerShell**: Launch a PowerShell terminal on a test machine.
+2.  **Navigate to the script directory**: Use `cd` to go to the folder containing the scripts.
+3.  **Unblock the Script**: If you downloaded the scripts as a ZIP file, Windows will likely "block" them. Run this command first to unblock the mapping script:
     ```powershell
-    powershell.exe -ExecutionPolicy Bypass -File .\\Map-Drive.ps1 -TenantId "YOUR_TENANT_ID" -ClientId "YOUR_CLIENT_ID" -ClientSecret "YOUR_SECRET"
+    Unblock-File -Path .\\Map-Drive.ps1
     ```
+4.  **Run the Script**: Use the following command template. This method uses an environment variable to handle the client secret, which is more secure for interactive testing than passing it as a parameter.
+
+    **Example Command:**
+    ```powershell
+    # First, set your secret as an environment variable for the current PowerShell session
+    $env:INTUNE_CLIENT_SECRET = "YOUR_CLIENT_SECRET_VALUE"
+
+    # Next, run the script with your other details
+    .\\Map-Drive.ps1 -Domain "YOUR_DOMAIN.com" -ClientId "YOUR_CLIENT_ID" -TenantId "YOUR_TENANT_ID"
+    ```
+    *Replace `YOUR_DOMAIN.com`, `YOUR_CLIENT_SECRET_VALUE`, `YOUR_CLIENT_ID`, and `YOUR_TENANT_ID` with the actual values from your Azure App Registration.*
+
+    > **Note:** The script will automatically use the `INTUNE_CLIENT_SECRET` environment variable if the `-ClientSecret` parameter is omitted.
 
 ### Interpreting the Debug Output
 
-The script will print messages with timestamps. Look at the last message printed before the script hangs. This will tell you which step is failing.
+The script will print messages with timestamps. Look at the last message printed before the script hangs or fails. This will tell you which step is causing the problem.
 
 *   **`DEBUG: Attempting to get Graph API token...`**: The script is trying to authenticate. If it hangs here, check for firewall or proxy issues that might be blocking the connection to `login.microsoftonline.com`.
 *   **`DEBUG: Getting user object ID from Graph API...`**: The script is trying to find the user in Azure AD. If it hangs here, the Graph API call to get the user might be failing.
-*   **`DEBUG: Getting all groups for user ID...`**: The script is trying to retrieve the user's group memberships. This can take time if the user is in many groups. If it hangs here for a very long time, there might be an issue with the Graph API service.
+*   **`DEBUG: Getting all groups for user ID...`**: The script is trying to retrieve the user's group memberships. This can take time if the user is in many groups.
 
 If the script fails with a `401 Unauthorized` error, refer to the "Prerequisite: App Registration in Azure AD" section to ensure your API permissions are correct.
 
