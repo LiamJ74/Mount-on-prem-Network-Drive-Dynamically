@@ -241,7 +241,7 @@ foreach ($drive in $mappedDrives) {
 }
 
 # 6. Map new drives
-$currentlyMappedPaths = (Get-WmiObject -Class Win32_MappedLogicalDisk -ErrorAction SilentlyContinue).ProviderName
+$currentlyMappedPaths = $mappedDrives.RemotePath
 foreach ($path in $requiredUncPaths) {
     if ($currentlyMappedPaths -contains $path) {
         Write-Output "Drive for '$path' is already mapped. Skipping."
