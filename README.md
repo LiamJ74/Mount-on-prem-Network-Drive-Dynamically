@@ -90,7 +90,7 @@ The script can fetch the credentials from an Azure Key Vault. This is recommende
 
     **Method A: Using Direct Parameters**
     ```powershell
-    powershell.exe -ExecutionPolicy Bypass -File .\\Map-Drive.ps1 -TenantId "YOUR_TENANT_ID" -ClientId "YOUR_CLIENT_ID" -ClientSecret "YOUR_SECRET"
+    powershell.exe -ExecutionPolicy Bypass -File .\\Map-Drive.ps1 -Domain "YOUR_DOMAIN.com" -TenantId "YOUR_TENANT_ID" -ClientId "YOUR_CLIENT_ID" -ClientSecret "YOUR_SECRET"
     ```
     *Replace the placeholders with your actual values.*
 
@@ -146,9 +146,9 @@ To test the script or troubleshoot issues, you can run it manually from a PowerS
     $env:INTUNE_CLIENT_SECRET = "YOUR_CLIENT_SECRET_VALUE"
 
     # Next, run the script with your other details
-    .\\Map-Drive.ps1 -ClientId "YOUR_CLIENT_ID" -TenantId "YOUR_TENANT_ID"
+    .\\Map-Drive.ps1 -Domain "YOUR_DOMAIN.com" -ClientId "YOUR_CLIENT_ID" -TenantId "YOUR_TENANT_ID"
     ```
-    *Replace `YOUR_CLIENT_SECRET_VALUE`, `YOUR_CLIENT_ID`, and `YOUR_TENANT_ID` with the actual values from your Azure App Registration.*
+    *Replace `YOUR_DOMAIN.com`, `YOUR_CLIENT_SECRET_VALUE`, `YOUR_CLIENT_ID`, and `YOUR_TENANT_ID` with the actual values from your Azure App Registration.*
 
     > **Note:** The script will automatically use the `INTUNE_CLIENT_SECRET` environment variable if the `-ClientSecret` parameter is omitted.
 

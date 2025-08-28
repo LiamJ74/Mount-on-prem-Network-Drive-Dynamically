@@ -20,6 +20,8 @@
 param(
     [Parameter(Mandatory=$true)]
     [string]$TenantId,
+    [Parameter(Mandatory=$true)]
+    [string]$Domain,
     [Parameter(Mandatory=$false)]
     [string]$KeyVaultName,
     [Parameter(Mandatory=$false)]
@@ -173,8 +175,8 @@ try {
     # Get current user and construct UPN
     $localUser = whoami
     $localUserName = $localUser.Split('\')[-1]
-    # !!! IMPORTANT: Replace "YOUR_DOMAIN.com" with your actual domain name.
-    $userPrincipalName = "$localUserName@YOUR_DOMAIN.com"
+    # The domain is now provided by the -Domain parameter.
+    $userPrincipalName = "$localUserName@$Domain"
     Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Constructed UPN: $userPrincipalName"
 
     # Get User ID from Graph API
