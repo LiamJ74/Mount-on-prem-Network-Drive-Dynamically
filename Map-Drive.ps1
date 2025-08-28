@@ -51,7 +51,7 @@ $NetworkShares = @{
         "\\SERVER\\HR-DOCS",
         "\\SERVER\\HR-ARCHIVES"
     )
-    "Public"  = "\\SERVER\\PUBLIC"
+    "PUBLIC"  = "\\SERVER\\PUBLIC"
 }
 
 # Status file configuration
@@ -186,11 +186,20 @@ try {
     $userId = $userResponse.id
     Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Found User ID: $userId"
 
-    # Get all user's group memberships using the User ID
+    # Get all user's group memberships using the User ID, with pagination
     Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Getting all groups for user ID: $userId..."
+    $allGroups = [System.Collections.Generic.List[string]]::new()
     $groupsUri = "https://graph.microsoft.com/v1.0/users/$userId/transitiveMemberOf/microsoft.graph.group?`$select=displayName&`$top=999"
-    $groupResponse = Invoke-RestMethod -Uri $groupsUri -Headers $headers -Method Get
-    $userGroupNames = $groupResponse.value.displayName
+
+    do {
+        $groupResponse = Invoke-RestMethod -Uri $groupsUri -Headers $headers -Method Get
+        if ($null -ne $groupResponse.value) {
+            $allGroups.AddRange($groupResponse.value.displayName)
+        }
+        $groupsUri = $groupResponse.'@odata.nextLink'
+    } while (-not [string]::IsNullOrEmpty($groupsUri))
+
+    $userGroupNames = $allGroups
     Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Group retrieval complete."
 
     if ($userGroupNames) {
@@ -217,7 +226,7 @@ foreach ($groupName in $userGroupNames) {
         }
     }
 }
-$requiredShareNames += "Public"
+$requiredShareNames += "PUBLIC"
 $requiredShareNames = $requiredShareNames | Select-Object -Unique
 $requiredUncPaths = @()
 foreach ($shareName in $requiredShareNames) {
@@ -249,12 +258,23 @@ foreach ($mapping in $currentMappings) {
 
 # 7. Map new drives
 Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Checking for required drives to map..."
-# Get a fresh list of mapped paths after any unmapping operations
-$currentlyMappedPaths = (Get-PSDrive | Where-Object { $_.Provider.Name -eq 'FileSystem' -and $_.Root.StartsWith('\\') }).Root | ForEach-Object { $_.TrimEnd('\') }
+# Get a fresh list of mapped paths after any unmapping operations. This handles the case where no drives are mapped.
+$mappedDrivesAfterUnmap = Get-PSDrive | Where-Object { $_.Provider.Name -eq 'FileSystem' -and ($_.Root -is [string]) -and $_.Root.StartsWith('\\') }
+$currentlyMappedPaths = @() # Initialize as an empty array
+if ($null -ne $mappedDrivesAfterUnmap) {
+    $currentlyMappedPaths = $mappedDrivesAfterUnmap.Root | ForEach-Object { $_.TrimEnd('\') }
+}
 
 foreach ($path in $requiredUncPaths) {
     if ($currentlyMappedPaths -contains $path) {
         Write-Output "Drive for '$path' is already mapped. Skipping."
+        continue
+    }
+
+    # Check if the network path is accessible before attempting to map
+    Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Testing path '$path'..."
+    if (-not (Test-Path -Path $path)) {
+        Write-Warning "Path '$path' is not accessible or does not exist. Skipping."
         continue
     }
 
