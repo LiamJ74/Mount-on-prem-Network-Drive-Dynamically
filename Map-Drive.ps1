@@ -131,9 +131,9 @@ function Normalize-UncPath {
 
 function Get-AvailableDriveLetter {
     # This function finds the next available drive letter from D: to Z:
-    $reserved = @('A','B','C') # A, B, C are typically reserved
-    # Get all currently used drive letters from all visible drives (local, network, etc.)
-    $usedLetters = (Get-PSDrive).Name | Where-Object { $_.Length -eq 1 }
+    $reserved = @('A','B','C')
+    # Get all drive letters currently in use by any logical disk (local, network, etc.)
+    $usedLetters = (Get-CimInstance -ClassName Win32_LogicalDisk).DeviceID | ForEach-Object { $_.TrimEnd(':') }
     $used = $reserved + $usedLetters | Select-Object -Unique
     $all = [char[]](68..90) # D to Z
     return $all | Where-Object { $_ -notin $used } | Select-Object -First 1
@@ -245,33 +245,38 @@ foreach ($shareName in $requiredShareNames) {
 $requiredUncPaths = $requiredUncPaths | ForEach-Object { Normalize-UncPath $_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
 Write-Output "Required UNC paths: $($requiredUncPaths -join ', ')"
 
-# 5. Get currently mapped network drives using a reliable method
-$currentMappings = Get-PSDrive | Where-Object { $_.Provider.Name -eq 'FileSystem' -and $_.Root.StartsWith('\\') }
+# 5. Get all currently mapped network drives using a reliable method
+$currentMappings = Get-CimInstance -ClassName Win32_NetworkConnection
+$currentlyMappedPaths = @()
+if ($null -ne $currentMappings) {
+    $currentlyMappedPaths = $currentMappings.RemoteName | ForEach-Object { Normalize-UncPath -Path $_ }
+}
 
 # 6. Unmap unnecessary drives
 Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Checking for unnecessary drives to unmap..."
-foreach ($mapping in $currentMappings) {
-    # Normalize the path from Get-PSDrive
-    $normalizedRemotePath = Normalize-UncPath -Path $mapping.Root
-    if ($null -eq $normalizedRemotePath) { continue }
+if ($null -ne $currentMappings) {
+    foreach ($mapping in $currentMappings) {
+        $normalizedRemotePath = Normalize-UncPath -Path $mapping.RemoteName
+        if ($null -eq $normalizedRemotePath) { continue }
 
-    if ($requiredUncPaths -notcontains $normalizedRemotePath) {
-        Write-Output "Removing drive '$($mapping.Name)' mapped to '$($mapping.Root)' as it is no longer required."
-        try {
-            Remove-PSDrive -Name $mapping.Name -Force -ErrorAction Stop
-        } catch {
-            Write-Error "Failed to remove drive '$($mapping.Name)'. Error: $($_.Exception.Message)"
+        if ($requiredUncPaths -notcontains $normalizedRemotePath) {
+            Write-Output "Removing drive '$($mapping.LocalName)' mapped to '$($mapping.RemoteName)' as it is no longer required."
+            try {
+                (New-Object -ComObject WScript.Network).RemoveNetworkDrive($mapping.LocalName, $true, $true)
+            } catch {
+                Write-Error "Failed to remove drive '$($mapping.LocalName)'. Error: $($_.Exception.Message)"
+            }
         }
     }
 }
 
 # 7. Map new drives
 Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Checking for required drives to map..."
-# Get a fresh list of mapped paths after any unmapping operations. This handles the case where no drives are mapped.
-$mappedDrivesAfterUnmap = Get-PSDrive | Where-Object { $_.Provider.Name -eq 'FileSystem' -and ($_.Root -is [string]) -and $_.Root.StartsWith('\\') }
+# Get a fresh list of mapped paths after any unmapping operations
+$currentMappingsAfterUnmap = Get-CimInstance -ClassName Win32_NetworkConnection
 $currentlyMappedPaths = @() # Initialize as an empty array
-if ($null -ne $mappedDrivesAfterUnmap) {
-    $currentlyMappedPaths = $mappedDrivesAfterUnmap.Root | ForEach-Object { Normalize-UncPath -Path $_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+if ($null -ne $currentMappingsAfterUnmap) {
+    $currentlyMappedPaths = $currentMappingsAfterUnmap.RemoteName | ForEach-Object { Normalize-UncPath -Path $_ }
 }
 
 foreach ($path in $requiredUncPaths) {
