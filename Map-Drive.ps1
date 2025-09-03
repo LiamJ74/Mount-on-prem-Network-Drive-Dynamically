@@ -54,6 +54,12 @@ $NetworkShares = @{
     "Public"  = "\\SERVER\\PUBLIC"
 }
 
+# Group-based access control for the "Public" share.
+# If $allowedGroupsForPublic is not empty, only members of these groups will get the share.
+# If a user is in both allowed and denied groups, they will be denied.
+$allowedGroupsForPublic = @() # e.g. @("GROUP1", "GROUP2")
+$deniedGroupsForPublic  = @() # e.g. @("GROUP3")
+
 # Status file configuration
 $StatusFileDirectory = "$env:LOCALAPPDATA\IntuneDriveMapping"
 $StatusFileName = "status.json"
@@ -217,7 +223,45 @@ foreach ($groupName in $userGroupNames) {
         }
     }
 }
-$requiredShareNames += "Public"
+# Conditionally add the "Public" share based on group membership.
+$includePublic = $false # Start with no access by default, and grant it based on rules.
+
+# Case 1: No lists are defined. Everyone gets access for backward compatibility.
+if ($allowedGroupsForPublic.Count -eq 0 -and $deniedGroupsForPublic.Count -eq 0) {
+    $includePublic = $true
+    Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Public access lists are empty, granting default access to 'Public' share."
+} else {
+    # Case 2: Allow list logic.
+    # If the allow list is defined, user must be in it. If it's not defined, access is allowed by default.
+    $isAllowed = $false
+    if ($allowedGroupsForPublic.Count -gt 0) {
+        if ($userGroupNames | Where-Object { $allowedGroupsForPublic -contains $_ } | Select-Object -First 1) {
+            $isAllowed = $true
+        }
+    } else {
+        $isAllowed = $true
+    }
+
+    # Case 3: Deny list logic.
+    # If the deny list is defined, user must not be in it.
+    $isDenied = $false
+    if ($deniedGroupsForPublic.Count -gt 0) {
+        if ($userGroupNames | Where-Object { $deniedGroupsForPublic -contains $_ } | Select-Object -First 1) {
+            $isDenied = $true
+        }
+    }
+
+    if ($isAllowed -and -not $isDenied) {
+        $includePublic = $true
+    }
+}
+
+if ($includePublic) {
+    $requiredShareNames += "Public"
+    Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: 'Public' share will be added for this user."
+} else {
+    Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: 'Public' share will not be added for this user due to group restrictions."
+}
 $requiredShareNames = $requiredShareNames | Select-Object -Unique
 $requiredUncPaths = @()
 foreach ($shareName in $requiredShareNames) {
