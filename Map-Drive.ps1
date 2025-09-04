@@ -60,20 +60,113 @@ $ClientSecretSecretName = 'IntuneDriveMapper-ClientSecret'
 
 # Maps a group name (with wildcard *) to a logical share name.
 $DriveMappings = @{
-    "AZURE/AD_GROUPS*_R1"  = "Finance"
-    "AZURE/AD_GROUPS*_RW1" = "Finance"
-    "AZURE/AD_GROUPS*_R2"  = "HR"
-    "AZURE/AD_GROUPS*_RW2" = "HR"
+    "ALPESCN_ORDONNANCEMENT_R"              = "ORDONNANCEMENT"
+    "ALPESCN_ORDONNANCEMENT_RW"             = "ORDONNANCEMENT"
+    "ALPESCN_LOGISTIQUE_R"                  = "LOGISTIQUE"
+    "ALPESCN_LOGISTIQUE_RW"                 = "LOGISTIQUE"
+    "ALPESCN_INDUSTRIALISATION_R"           = "INDUSTRIALISATION"
+    "ALPESCN_INDUSTRIALISATION_RW"          = "INDUSTRIALISATION"
+    "ALPESCN_PRODUCTION_USINAGE_R"          = "PRODUCTION_USINAGE"
+    "ALPESCN_PRODUCTION_USINAGE_RW"         = "PRODUCTION_USINAGE"
+    "ALPESCN_PRODUCTION_FINITION_R"         = "PRODUCTION_FINITION"
+    "ALPESCN_PRODUCTION_FINITION_RW"        = "PRODUCTION_FINITION"
+    "ALPESCN_PRODUCTION_CONDITIONNEMENT_R"  = "PRODUCTION_CONDITIONNEMENT"
+    "ALPESCN_PRODUCTION_CONDITIONNEMENT_RW" = "PRODUCTION_CONDITIONNEMENT"
+    "ALPESCN_PRODUCTION_3D_R"               = "PRODUCTION_3D"
+    "ALPESCN_PRODUCTION_3D_RW"              = "PRODUCTION_3D"
+    "ALPESCN_DIRECTION_R"                   = "DIRECTION"
+    "ALPESCN_DIRECTION_RW"                  = "DIRECTION"
+    "ALPESCN_FACILITIES_R"                  = "FACILITIES"
+    "ALPESCN_FACILITIES_RW"                 = "FACILITIES"
+    "ALPESCN_FINANCE_R"                     = "FINANCE"
+    "ALPESCN_FINANCE_RW"                    = "FINANCE"
+    "ALPESCN_HR_R"                          = "HR"
+    "ALPESCN_HR_RW"                         = "HR"
+    "ALPESCN_HSE_R"                         = "HSE"
+    "ALPESCN_HSE_RW"                        = "HSE"
+    "ALPESCN_MAINTENANCE_R"                 = "MAINTENANCE"
+    "ALPESCN_MAINTENANCE_RW"                = "MAINTENANCE"
+    "ALPESCN_OFFICE_MANAGEMENT_R"           = "OFFICE_MANAGEMENT"
+    "ALPESCN_OFFICE_MANAGEMENT_RW"          = "OFFICE_MANAGEMENT"
+    "ALPESCN_PUBLIC_R"                      = "PUBLIC"
+    "ALPESCN_PUBLIC_RW"                     = "PUBLIC"
+    "ALPESCN_QUALITE_RW"                    = "QUALITE"
+    "ALPESCN_QUALITE_R"                     = "QUALITE"
+    "R&D"                                   = "R&D"
+    "INTUNE_Scientific"			    = "SCIENTIFIC"
+    "INTUNE_MaterioVigilance"               = "VIGILANCE"
 }
 
-# Maps a logical share name to one or more actual UNC paths.
 $NetworkShares = @{
-    "Finance" = "\\SERVER\\FINANCE"
-    "HR"      = @(
-        "\\SERVER\\HR-DOCS",
-        "\\SERVER\\HR-ARCHIVES"
+    "ORDONNANCEMENT"                        = "\\10.80.2.20\ORDONNANCEMENT"
+    "LOGISTIQUE"                            = "\\10.80.2.20\LOGISTIQUE"
+    "INDUSTRIALISATION"                     = "\\10.80.2.20\INDUSTRIALISATION"
+    "PRODUCTION_USINAGE"                    = "\\10.80.2.20\PRODUCTION_USINAGE"
+    "PRODUCTION_FINITION"                   = "\\10.80.2.20\PRODUCTION_FINITION"
+    "PRODUCTION_CONDITIONNEMENT" = @(
+	"\\10.80.2.20\PRODUCTION_CONDITIONNEMENT",
+	"\\192.168.100.20\Ordrefabrication"
+	)
+    "PRODUCTION_3D"                         = "\\10.80.2.20\PRODUCTION_3D"
+    "PUBLIC"                                = "\\10.80.2.20\PUBLIC"
+    "DIRECTION"                             = "\\10.80.2.20\DIRECTION"
+    "FACILITIES"                            = "\\10.80.2.20\FACILITIES"
+    "FINANCE"                               = "\\10.80.2.20\FINANCE"
+    "HR"                                    = "\\10.80.2.20\HR"
+    "HSE"                                   = "\\10.80.2.20\HSE"
+    "MAINTENANCE"                           = "\\10.80.2.20\MAINTENANCE"
+    "OFFICE_MANAGEMENT"                     = "\\10.80.2.20\OFFICE_MANAGEMENT"
+    "QUALITE"                               = "\\10.80.2.20\QUALITE"
+    "R&D" = @(
+        "\\vm-data\RDM",
+        "\\vm-data\TLC",
+        "\\srv-rd\3D",
+        "\\srv-rd\R&D",
+        "\\vm-data\PlansDeFabrication",
+        "\\vm-data\M&S",
+        "\\vm-data\IBD",
+        "\\vm-data\Competitors"
     )
+    "SCIENTIFIC" = @(
+		"\\vm-data\ClinicalActivities",
+		"\\vm-data\AffairesScientifiques",
+		"\\vm-data\M&S",
+		"\\vm-data\QMS"
+	)
+    "VIGILANCE" = @(
+		"\\srv-rd\conception$",
+		"\\vm-data\DHR",
+		"\\vm-data\PlansDeFabrication"
+	)
 }
+
+# Access control for the "Public" share based on other assigned logical shares.
+# Use this to include or exclude the Public share if a user has access to specific other shares.
+# For example, you can deny "Public" to users who have access to the "R&D" share.
+$allowedSharesForPublic = @(
+	"ORDONNANCEMENT",
+	"LOGISTIQUE",
+	"INDUSTRIALISATION",
+	"PRODUCTION_USINAGE",
+	"PRODUCTION_FINITION",
+	"PRODUCTION_CONDITIONNEMENT",
+	"PRODUCTION_3D",
+	"DIRECTION",
+	"FACILITIES",
+	"FINANCE",
+	"HR",
+    "HSE",
+    "MAINTENANCE",
+    "OFFICE_MANAGEMENT",
+    "QUALITE"
+
+)
+
+$deniedSharesForPublic  = @(
+	"R&D",
+	"SCIENTIFIC",
+	"VIGILANCE"
+)
 
 # Status file configuration
 $StatusFileDirectory = "$env:LOCALAPPDATA\IntuneDriveMapping"
@@ -267,6 +360,49 @@ foreach ($groupName in $userGroupNames) {
             $requiredShareNames += $mapping.Value
         }
     }
+}
+# Get a unique list of the logical shares assigned to the user so far.
+$uniqueUserShares = $requiredShareNames | Select-Object -Unique
+
+# Conditionally add the "Public" share based on the user's assigned logical shares.
+$includePublic = $false # Start with no access by default, and grant it based on rules.
+
+# Case 1: No lists are defined. Everyone gets access for backward compatibility.
+if ($allowedSharesForPublic.Count -eq 0 -and $deniedSharesForPublic.Count -eq 0) {
+    $includePublic = $true
+    Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Public share access lists are empty, granting default access."
+} else {
+    # Case 2: Allow list logic.
+    # If the allow list is defined, user must have an assigned share that is on the list.
+    # If the allow list is empty, access is allowed by default (and will be checked against the deny list).
+    $isAllowed = $false
+    if ($allowedSharesForPublic.Count -gt 0) {
+        if ($uniqueUserShares | Where-Object { $allowedSharesForPublic -contains $_ } | Select-Object -First 1) {
+            $isAllowed = $true
+        }
+    } else {
+        $isAllowed = $true
+    }
+
+    # Case 3: Deny list logic.
+    # If the deny list is defined, user must not have any assigned share that is on the list.
+    $isDenied = $false
+    if ($deniedSharesForPublic.Count -gt 0) {
+        if ($uniqueUserShares | Where-Object { $deniedSharesForPublic -contains $_ } | Select-Object -First 1) {
+            $isDenied = $true
+        }
+    }
+
+    if ($isAllowed -and -not $isDenied) {
+        $includePublic = $true
+    }
+}
+
+if ($includePublic) {
+    $requiredShareNames += "Public"
+    Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: 'Public' share will be added for this user based on logical share rules."
+} else {
+    Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: 'Public' share will not be added for this user due to logical share restrictions."
 }
 $requiredShareNames = $requiredShareNames | Select-Object -Unique
 $requiredUncPaths = @()

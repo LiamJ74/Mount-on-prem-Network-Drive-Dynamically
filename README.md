@@ -132,17 +132,22 @@ You can define which Azure AD groups map to which network shares by modifying th
 ```powershell
 # Maps a group name (with wildcard *) to a logical share name
 $DriveMappings = @{
-    "AZURE/AD_GROUPS*_R1"  = "Finance"
-    "AZURE/AD_GROUPS*_RW1" = "Finance"
-    "AZURE/AD_GROUPS*_R2"  = "HR"
+    "ALPESCN_ORDONNANCEMENT_R"  = "ORDONNANCEMENT"
+    "ALPESCN_LOGISTIQUE_R"      = "LOGISTIQUE"
+    "ALPESCN_FINANCE_RW"        = "FINANCE"
+    "R&D"                       = "R&D"
+    # ... etc.
 }
 
 # Maps a logical share name to one or more actual UNC paths
 $NetworkShares = @{
-    "Finance" = "\\SERVER\FINANCE"
-    "HR"      = @(
-        "\\SERVER\HR-DOCS",
-        "\\SERVER\HR-ARCHIVES"
+    "ORDONNANCEMENT" = "\\10.80.2.20\ORDONNANCEMENT"
+    "LOGISTIQUE"     = "\\10.80.2.20\LOGISTIQUE"
+    "FINANCE"        = "\\10.80.2.20\FINANCE"
+    "R&D" = @(
+        "\\vm-data\RDM",
+        "\\vm-data\TLC"
+        # ... etc.
     )
 }
 ```
@@ -160,6 +165,22 @@ $ExcludedUncPaths = @(
 )
 ```
 This feature replaces the previous, less flexible behavior of always adding a "Public" drive.
+
+### Conditional Public Share Mapping
+You can control access to the "Public" logical share based on a user's membership in other logical shares. This is useful for scenarios like preventing users with access to sensitive "R&D" drives from also getting the general "Public" drive.
+
+This is controlled by two arrays:
+*   `$allowedSharesForPublic`: If this list has any entries, a user **must** have at least one of these logical shares to be considered for "Public" drive access. If this list is empty, all users are considered "allowed" by default.
+*   `$deniedSharesForPublic`: If a user has **any** logical share that is in this list, they will be **denied** access to the "Public" drive, even if they were allowed by the first list.
+
+**Example:** Deny the "Public" drive to anyone who is a member of the "R&D" or "SCIENTIFIC" shares.
+```powershell
+$allowedSharesForPublic = @() # Allow all by default
+$deniedSharesForPublic  = @(
+	"R&D",
+	"SCIENTIFIC"
+)
+```
 
 ## 🧪 Testing & Troubleshooting
 
