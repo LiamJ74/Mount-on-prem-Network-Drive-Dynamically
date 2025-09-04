@@ -60,83 +60,28 @@ $ClientSecretSecretName = 'IntuneDriveMapper-ClientSecret'
 
 # Maps a group name (with wildcard *) to a logical share name.
 $DriveMappings = @{
-    "ALPESCN_ORDONNANCEMENT_R"              = "ORDONNANCEMENT"
-    "ALPESCN_ORDONNANCEMENT_RW"             = "ORDONNANCEMENT"
-    "ALPESCN_LOGISTIQUE_R"                  = "LOGISTIQUE"
-    "ALPESCN_LOGISTIQUE_RW"                 = "LOGISTIQUE"
-    "ALPESCN_INDUSTRIALISATION_R"           = "INDUSTRIALISATION"
-    "ALPESCN_INDUSTRIALISATION_RW"          = "INDUSTRIALISATION"
-    "ALPESCN_PRODUCTION_USINAGE_R"          = "PRODUCTION_USINAGE"
-    "ALPESCN_PRODUCTION_USINAGE_RW"         = "PRODUCTION_USINAGE"
-    "ALPESCN_PRODUCTION_FINITION_R"         = "PRODUCTION_FINITION"
-    "ALPESCN_PRODUCTION_FINITION_RW"        = "PRODUCTION_FINITION"
-    "ALPESCN_PRODUCTION_CONDITIONNEMENT_R"  = "PRODUCTION_CONDITIONNEMENT"
-    "ALPESCN_PRODUCTION_CONDITIONNEMENT_RW" = "PRODUCTION_CONDITIONNEMENT"
-    "ALPESCN_PRODUCTION_3D_R"               = "PRODUCTION_3D"
-    "ALPESCN_PRODUCTION_3D_RW"              = "PRODUCTION_3D"
-    "ALPESCN_DIRECTION_R"                   = "DIRECTION"
-    "ALPESCN_DIRECTION_RW"                  = "DIRECTION"
-    "ALPESCN_FACILITIES_R"                  = "FACILITIES"
-    "ALPESCN_FACILITIES_RW"                 = "FACILITIES"
-    "ALPESCN_FINANCE_R"                     = "FINANCE"
-    "ALPESCN_FINANCE_RW"                    = "FINANCE"
-    "ALPESCN_HR_R"                          = "HR"
-    "ALPESCN_HR_RW"                         = "HR"
-    "ALPESCN_HSE_R"                         = "HSE"
-    "ALPESCN_HSE_RW"                        = "HSE"
-    "ALPESCN_MAINTENANCE_R"                 = "MAINTENANCE"
-    "ALPESCN_MAINTENANCE_RW"                = "MAINTENANCE"
-    "ALPESCN_OFFICE_MANAGEMENT_R"           = "OFFICE_MANAGEMENT"
-    "ALPESCN_OFFICE_MANAGEMENT_RW"          = "OFFICE_MANAGEMENT"
-    "ALPESCN_PUBLIC_R"                      = "PUBLIC"
-    "ALPESCN_PUBLIC_RW"                     = "PUBLIC"
-    "ALPESCN_QUALITE_RW"                    = "QUALITE"
-    "ALPESCN_QUALITE_R"                     = "QUALITE"
-    "R&D"                                   = "R&D"
-    "INTUNE_Scientific"			    = "SCIENTIFIC"
-    "INTUNE_MaterioVigilance"               = "VIGILANCE"
+    
+    "FINANCE_R"                     = "FINANCE"
+    "FINANCE_RW"                    = "FINANCE"
+    "HR_R"                          = "HR"
+    "HR_RW"                         = "HR"
+    "R&D"                           = "R&D"
+    "Scientific"			        = "SCIENTIFIC"
 }
 
 $NetworkShares = @{
-    "ORDONNANCEMENT"                        = "\\10.80.2.20\ORDONNANCEMENT"
-    "LOGISTIQUE"                            = "\\10.80.2.20\LOGISTIQUE"
-    "INDUSTRIALISATION"                     = "\\10.80.2.20\INDUSTRIALISATION"
-    "PRODUCTION_USINAGE"                    = "\\10.80.2.20\PRODUCTION_USINAGE"
-    "PRODUCTION_FINITION"                   = "\\10.80.2.20\PRODUCTION_FINITION"
-    "PRODUCTION_CONDITIONNEMENT" = @(
-	"\\10.80.2.20\PRODUCTION_CONDITIONNEMENT",
-	"\\192.168.100.20\Ordrefabrication"
-	)
-    "PRODUCTION_3D"                         = "\\10.80.2.20\PRODUCTION_3D"
-    "PUBLIC"                                = "\\10.80.2.20\PUBLIC"
-    "DIRECTION"                             = "\\10.80.2.20\DIRECTION"
-    "FACILITIES"                            = "\\10.80.2.20\FACILITIES"
-    "FINANCE"                               = "\\10.80.2.20\FINANCE"
-    "HR"                                    = "\\10.80.2.20\HR"
-    "HSE"                                   = "\\10.80.2.20\HSE"
-    "MAINTENANCE"                           = "\\10.80.2.20\MAINTENANCE"
-    "OFFICE_MANAGEMENT"                     = "\\10.80.2.20\OFFICE_MANAGEMENT"
-    "QUALITE"                               = "\\10.80.2.20\QUALITE"
+
+    "PUBLIC"                                = "\\XX.XX.X.XX\PUBLIC"
+    "FINANCE"                               = "\\XX.XX.X.XX\FINANCE"
+    "HR"                                    = "\\XX.XX.X.XX\HR"
     "R&D" = @(
-        "\\vm-data\RDM",
-        "\\vm-data\TLC",
-        "\\srv-rd\3D",
-        "\\srv-rd\R&D",
-        "\\vm-data\PlansDeFabrication",
-        "\\vm-data\M&S",
-        "\\vm-data\IBD",
-        "\\vm-data\Competitors"
+
+        "\\XX.XX.X.XX\3D",
+        "\\XX.XX.X.XX\\R&D"
     )
     "SCIENTIFIC" = @(
-		"\\vm-data\ClinicalActivities",
-		"\\vm-data\AffairesScientifiques",
-		"\\vm-data\M&S",
-		"\\vm-data\QMS"
-	)
-    "VIGILANCE" = @(
-		"\\srv-rd\conception$",
-		"\\vm-data\DHR",
-		"\\vm-data\PlansDeFabrication"
+		"\\XX.XX.X.XX\SCIENTIFIC",
+		"\\XX.XX.X.XX\SCIENTIFCS2"
 	)
 }
 
@@ -144,28 +89,15 @@ $NetworkShares = @{
 # Use this to include or exclude the Public share if a user has access to specific other shares.
 # For example, you can deny "Public" to users who have access to the "R&D" share.
 $allowedSharesForPublic = @(
-	"ORDONNANCEMENT",
-	"LOGISTIQUE",
-	"INDUSTRIALISATION",
-	"PRODUCTION_USINAGE",
-	"PRODUCTION_FINITION",
-	"PRODUCTION_CONDITIONNEMENT",
-	"PRODUCTION_3D",
-	"DIRECTION",
-	"FACILITIES",
-	"FINANCE",
-	"HR",
-    "HSE",
-    "MAINTENANCE",
-    "OFFICE_MANAGEMENT",
-    "QUALITE"
 
+	"FINANCE",
+	"HR"
 )
 
 $deniedSharesForPublic  = @(
+
 	"R&D",
-	"SCIENTIFIC",
-	"VIGILANCE"
+	"SCIENTIFIC"
 )
 
 # Status file configuration
