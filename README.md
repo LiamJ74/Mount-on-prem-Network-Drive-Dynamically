@@ -46,13 +46,22 @@ Copy the following values to use in the script:
 
 ## 🔒 Authentication Methods
 
-The script supports two methods for providing the App Registration credentials.
+The script supports three methods for providing the App Registration credentials.
 
 ### 1. Direct Parameters (Standard Method)
 You can provide the `ClientId` and `ClientSecret` directly as command-line parameters. This is the standard and simplest way to use the script with Intune.
 
 ### 2. Azure Key Vault (Advanced Method)
 The script can fetch the credentials from an Azure Key Vault. This is recommended for environments where secrets are centrally managed.
+
+### 3. Hardcoded in Script (Remediation Method)
+You can hardcode all necessary configuration directly into the `Map-Drive.ps1` script. This method is intended for simple, standalone execution, such as for remediation or testing, where providing parameters is inconvenient. This allows for a zero-parameter execution of the script.
+
+**How to use:**
+1.  Open the `Map-Drive.ps1` script.
+2.  Locate the `Hardcoded Configuration` section at the top.
+3.  Fill in the values for `$HardcodedTenantId`, `$HardcodedDomain`, `$HardcodedClientId`, and `$HardcodedClientSecret`.
+> **Security Note:** This method is the least secure and should not be used for general production deployments in Intune, as the secret is stored in plain text within the script package.
 
 **Prerequisites for Key Vault:**
 *   The **user** running the script (or the **device**, if using a system identity) must have an Azure AD identity that is granted `Get` access to the secrets in your Key Vault.
@@ -64,10 +73,11 @@ The script can fetch the credentials from an Azure Key Vault. This is recommende
 ## 🔁 Logic Overview
 
 *   **Remediation Script (`Map-Drive.ps1`)**:
-    1.  Uses the Microsoft Graph API to retrieve the user's groups.
-    2.  Determines the exact list of required network drives.
-    3.  Maps any missing drives and removes any that are no longer needed.
-    4.  Creates a status file (`status.json`) in a subfolder of the user's local app data (`$env:LOCALAPPDATA`) with the list of drives that were just configured.
+    1.  Uses the Microsoft Graph API to retrieve the user's Azure AD groups.
+    2.  Calculates the definitive list of required network drives based on the `DriveMappings` and `NetworkShares` configuration.
+    3.  **Safely removes drives**: It removes any drives that are defined in `$NetworkShares` but are no longer required for the user. It will **never** touch any other mapped drives that are not defined in its configuration.
+    4.  **Maps missing drives**: It maps all required drives that are not already present.
+    5.  Creates a status file (`status.json`) in a subfolder of the user's local app data (`$env:LOCALAPPDATA`) with the list of drives that were just configured.
 
 *   **Detection Script (`Detect-Drives.ps1`)**:
     1.  Reads the `status.json` file to know which drives should be mapped.
@@ -96,9 +106,17 @@ The script can fetch the credentials from an Azure Key Vault. This is recommende
 
     **Method B: Using Azure Key Vault**
     ```powershell
-    powershell.exe -ExecutionPolicy Bypass -File .\\Map-Drive.ps1 -TenantId "YOUR_TENANT_ID" -KeyVaultName "YOUR_KEY_VAULT_NAME"
+    powershell.exe -ExecutionPolicy Bypass -File .\\Map-Drive.ps1 -Domain "YOUR_DOMAIN.com" -TenantId "YOUR_TENANT_ID" -KeyVaultName "YOUR_KEY_VAULT_NAME"
     ```
     *Replace `YOUR_KEY_VAULT_NAME` with the name of your vault.*
+
+    **Method C: Using Hardcoded Credentials**
+
+    If you have filled in all the variables in the `Hardcoded Configuration` section of the script, it can be run with no parameters.
+    ```powershell
+    powershell.exe -ExecutionPolicy Bypass -File .\\Map-Drive.ps1
+    ```
+    *This method is generally not recommended for Intune deployment but is included for completeness.*
 
 4.  Configure the uninstall command (optional).
 5.  Under **Detection rules**, select **Use a custom script** and upload `Detect-Drives.ps1`.
@@ -106,24 +124,62 @@ The script can fetch the credentials from an Azure Key Vault. This is recommende
 
 ## ⚙️ Customization
 
-The mapping logic is located in `Map-Drive.ps1`. You can customize it by modifying the hash tables:
+The mapping logic is located in `Map-Drive.ps1`. You can customize it by modifying the configuration variables at the top of the script.
+
+### Drive Mappings
+You can define which Azure AD groups map to which network shares by modifying these two hash tables:
 
 ```powershell
 # Maps a group name (with wildcard *) to a logical share name
 $DriveMappings = @{
-    "AZURE/AD_GROUPS*_R1"  = "Finance"
-    "AZURE/AD_GROUPS*_RW1" = "Finance"
-    "AZURE/AD_GROUPS*_R2"  = "HR"
+    "ALPESCN_ORDONNANCEMENT_R"  = "ORDONNANCEMENT"
+    "ALPESCN_LOGISTIQUE_R"      = "LOGISTIQUE"
+    "ALPESCN_FINANCE_RW"        = "FINANCE"
+    "R&D"                       = "R&D"
+    # ... etc.
 }
 
 # Maps a logical share name to one or more actual UNC paths
 $NetworkShares = @{
-    "Finance" = "\\SERVER\FINANCE"
-    "HR"      = @(
-        "\\SERVER\HR-DOCS",
-        "\\SERVER\HR-ARCHIVES"
+    "ORDONNANCEMENT" = "\\10.80.2.20\ORDONNANCEMENT"
+    "LOGISTIQUE"     = "\\10.80.2.20\LOGISTIQUE"
+    "FINANCE"        = "\\10.80.2.20\FINANCE"
+    "R&D" = @(
+        "\\vm-data\RDM",
+        "\\vm-data\TLC"
+        # ... etc.
     )
 }
+```
+
+### Excluding Drives from Unmapping
+The script is designed to remove any mapped drives that are not explicitly assigned via the group mappings. If you have drives that users map manually (or that are mapped by other systems) that you want this script to ignore, you can add them to the `$ExcludedUncPaths` list.
+
+The script will never attempt to unmap a drive whose UNC path is in this list.
+
+```powershell
+# Add any UNC paths here that should NEVER be unmapped by this script.
+$ExcludedUncPaths = @(
+    "\\SERVER\COMMON-SHARE",
+    "\\CORP\DEPT-SHARE"
+)
+```
+This feature replaces the previous, less flexible behavior of always adding a "Public" drive.
+
+### Conditional Public Share Mapping
+You can control access to the "Public" logical share based on a user's membership in other logical shares. This is useful for scenarios like preventing users with access to sensitive "R&D" drives from also getting the general "Public" drive.
+
+This is controlled by two arrays:
+*   `$allowedSharesForPublic`: If this list has any entries, a user **must** have at least one of these logical shares to be considered for "Public" drive access. If this list is empty, all users are considered "allowed" by default.
+*   `$deniedSharesForPublic`: If a user has **any** logical share that is in this list, they will be **denied** access to the "Public" drive, even if they were allowed by the first list.
+
+**Example:** Deny the "Public" drive to anyone who is a member of the "R&D" or "SCIENTIFIC" shares.
+```powershell
+$allowedSharesForPublic = @() # Allow all by default
+$deniedSharesForPublic  = @(
+	"R&D",
+	"SCIENTIFIC"
+)
 ```
 
 ## 🧪 Testing & Troubleshooting
@@ -165,5 +221,6 @@ If the script fails with a `401 Unauthorized` error, refer to the "Prerequisite:
 ## ✅ Result
 
 *   Fully automated network drive mapping based on Azure AD groups.
-*   Self-healing solution: deleted or modified drives are automatically corrected.
+*   Safe, self-healing solution: corrects mappings for configured corporate drives while ignoring users' personal mapped drives.
+*   Flexible: Supports multiple authentication methods and allows for drive-level exclusions.
 *   Works on both Azure AD joined and Hybrid joined devices.

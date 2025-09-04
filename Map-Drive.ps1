@@ -1,15 +1,18 @@
 <#
 .SYNOPSIS
-    Maps network drives based on Azure AD group membership, with optional Azure Key Vault integration.
+    Maps network drives based on Azure AD group membership. Supports multiple authentication methods.
 .DESCRIPTION
     This script, intended for deployment via Intune, determines a user's Azure AD groups,
     maps corresponding network drives according to a defined configuration, removes old mappings,
     and creates a status file for the detection script.
-    It can receive secrets directly as parameters or fetch them from an Azure Key Vault.
+    It supports three authentication methods:
+    1. Direct Parameters: Provide ClientId and ClientSecret as command-line arguments.
+    2. Azure Key Vault: Provide a Key Vault name to fetch credentials securely.
+    3. Hardcoded: Define credentials directly in the script (for testing/remediation).
 .PARAMETER TenantId
-    The Azure AD Tenant ID. Mandatory.
+    Optional. The Azure AD Tenant ID. Can be hardcoded in the script instead.
 .PARAMETER Domain
-    The company domain used to construct the user's UPN (e.g., "yourdomain.com"). Mandatory.
+    Optional. The company domain (e.g., "yourdomain.com"). Can be hardcoded in the script instead.
 .PARAMETER KeyVaultName
     Optional. The name of the Azure Key Vault to retrieve secrets from. If used, ClientId and ClientSecret are ignored.
 .PARAMETER ClientId
@@ -18,9 +21,9 @@
     The client secret for the Azure AD application. Mandatory if not using Key Vault.
 #>
 param(
-    [Parameter(Mandatory=$true)]
+    [Parameter(Mandatory=$false)]
     [string]$TenantId,
-    [Parameter(Mandatory=$true)]
+    [Parameter(Mandatory=$false)]
     [string]$Domain,
     [Parameter(Mandatory=$false)]
     [string]$KeyVaultName,
@@ -32,27 +35,70 @@ param(
 
 # --- Configuration ---
 
+# --- Hardcoded Configuration (Alternative Method) ---
+# For a zero-parameter execution (e.g., for simple remediation), you can define all required values here.
+# The script will use these values only if the corresponding parameters are not provided.
+# For security, storing secrets here is not the recommended method for production deployment via Intune.
+$HardcodedTenantId = "" # <-- Enter Tenant ID here
+$HardcodedDomain = "" # <-- Enter domain (e.g., "yourdomain.com") here
+$HardcodedClientId = "" # <-- Enter Client ID here
+$HardcodedClientSecret = "" # <-- Enter Client Secret here
+# --- End Hardcoded Configuration ---
+
+# --- Drive Exclusion Configuration ---
+# Add any UNC paths here that should NEVER be unmapped by this script.
+# This is useful for shared mailboxes or other drives that users may map manually.
+$ExcludedUncPaths = @(
+    # "\\SERVER\SHARE1",
+    # "\\ANOTHER-SERVER\SHARE2"
+)
+# --- End Drive Exclusion Configuration ---
+
 # Secret names to look for in Azure Key Vault.
 $ClientIdSecretName = 'IntuneDriveMapper-ClientId'
 $ClientSecretSecretName = 'IntuneDriveMapper-ClientSecret'
 
 # Maps a group name (with wildcard *) to a logical share name.
 $DriveMappings = @{
-    "AZURE/AD_GROUPS*_R1"  = "Finance"
-    "AZURE/AD_GROUPS*_RW1" = "Finance"
-    "AZURE/AD_GROUPS*_R2"  = "HR"
-    "AZURE/AD_GROUPS*_RW2" = "HR"
+    
+    "FINANCE_R"                     = "FINANCE"
+    "FINANCE_RW"                    = "FINANCE"
+    "HR_R"                          = "HR"
+    "HR_RW"                         = "HR"
+    "R&D"                           = "R&D"
+    "Scientific"			        = "SCIENTIFIC"
 }
 
-# Maps a logical share name to one or more actual UNC paths.
 $NetworkShares = @{
-    "Finance" = "\\SERVER\\FINANCE"
-    "HR"      = @(
-        "\\SERVER\\HR-DOCS",
-        "\\SERVER\\HR-ARCHIVES"
+
+    "PUBLIC"                                = "\\XX.XX.X.XX\PUBLIC"
+    "FINANCE"                               = "\\XX.XX.X.XX\FINANCE"
+    "HR"                                    = "\\XX.XX.X.XX\HR"
+    "R&D" = @(
+
+        "\\XX.XX.X.XX\3D",
+        "\\XX.XX.X.XX\\R&D"
     )
-    "Public"  = "\\SERVER\\PUBLIC"
+    "SCIENTIFIC" = @(
+		"\\XX.XX.X.XX\SCIENTIFIC",
+		"\\XX.XX.X.XX\SCIENTIFCS2"
+	)
 }
+
+# Access control for the "Public" share based on other assigned logical shares.
+# Use this to include or exclude the Public share if a user has access to specific other shares.
+# For example, you can deny "Public" to users who have access to the "R&D" share.
+$allowedSharesForPublic = @(
+
+	"FINANCE",
+	"HR"
+)
+
+$deniedSharesForPublic  = @(
+
+	"R&D",
+	"SCIENTIFIC"
+)
 
 # Status file configuration
 $StatusFileDirectory = "$env:LOCALAPPDATA\IntuneDriveMapping"
@@ -136,7 +182,19 @@ function Get-AvailableDriveLetter {
 
 Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Script execution started."
 
-# 1. Validate parameters and retrieve secrets
+# 1. Validate and assign TenantId and Domain
+if (-not $PSBoundParameters.ContainsKey('TenantId') -and $HardcodedTenantId) {
+    $TenantId = $HardcodedTenantId
+}
+if (-not $PSBoundParameters.ContainsKey('Domain') -and $HardcodedDomain) {
+    $Domain = $HardcodedDomain
+}
+if (-not $TenantId -or -not $Domain) {
+    Write-Error "TenantId and Domain must be provided either as parameters or in the hardcoded configuration section. Exiting."
+    exit 1
+}
+
+# 2. Validate parameters and retrieve secrets
 
 # If ClientSecret parameter is not provided, try to get it from the environment variable
 if (-not $PSBoundParameters.ContainsKey('ClientSecret')) {
@@ -147,6 +205,7 @@ if (-not $PSBoundParameters.ContainsKey('ClientSecret')) {
 }
 
 if ($PSBoundParameters.ContainsKey('KeyVaultName')) {
+    Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Auth method: Key Vault."
     $secrets = Get-SecretsFromKeyVault
     if (-not $secrets) {
         Write-Error "Could not retrieve secrets from Key Vault. Exiting."
@@ -154,12 +213,29 @@ if ($PSBoundParameters.ContainsKey('KeyVaultName')) {
     }
     $ClientId = $secrets.ClientId
     $ClientSecret = $secrets.ClientSecret
-} elseif (-not ($PSBoundParameters.ContainsKey('ClientId') -and $ClientSecret)) {
-    Write-Error "Invalid parameters. You must provide either -KeyVaultName, or both -ClientId and -ClientSecret (or set the INTUNE_CLIENT_SECRET environment variable). Exiting."
+} elseif ($PSBoundParameters.ContainsKey('ClientId')) {
+    Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Auth method: Parameters."
+    # This block is for when -ClientId is passed. The $ClientSecret is either from the param or env var.
+    # The check for its existence will happen in the final 'if' statement below.
+} elseif ($HardcodedClientId -and $HardcodedClientSecret) {
+    Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Auth method: Hardcoded in script."
+    $ClientId = $HardcodedClientId
+    $ClientSecret = $HardcodedClientSecret
+}
+
+# Final validation: After attempting all methods, do we have the credentials we need?
+if (-not ($ClientId -and $ClientSecret)) {
+    Write-Error @"
+Credential information could not be determined. You must use one of the following methods:
+1. Provide the -KeyVaultName parameter.
+2. Provide the -ClientId and -ClientSecret parameters (or set the INTUNE_CLIENT_SECRET environment variable).
+3. Fill in the HardcodedClientId and HardcodedClientSecret variables at the top of the script.
+Exiting.
+"@
     exit 1
 }
 
-# 2. Get Graph API Token
+# 3. Get Graph API Token
 $token = Get-GraphApiToken -GatClientId $ClientId -GatClientSecret $ClientSecret
 if (-not $token) {
     exit 1
@@ -170,7 +246,7 @@ $headers = @{
     Consistencylevel  = "eventual"
 }
 
-# 3. Get user's groups
+# 4. Get user's groups
 try {
     # Get current user and construct UPN
     $localUser = whoami
@@ -208,7 +284,7 @@ try {
     exit 1
 }
 
-# 4. Calculate required shares
+# 5. Calculate required shares
 $requiredShareNames = @()
 foreach ($groupName in $userGroupNames) {
     foreach ($mapping in $DriveMappings.GetEnumerator()) {
@@ -217,7 +293,49 @@ foreach ($groupName in $userGroupNames) {
         }
     }
 }
-$requiredShareNames += "Public"
+# Get a unique list of the logical shares assigned to the user so far.
+$uniqueUserShares = $requiredShareNames | Select-Object -Unique
+
+# Conditionally add the "Public" share based on the user's assigned logical shares.
+$includePublic = $false # Start with no access by default, and grant it based on rules.
+
+# Case 1: No lists are defined. Everyone gets access for backward compatibility.
+if ($allowedSharesForPublic.Count -eq 0 -and $deniedSharesForPublic.Count -eq 0) {
+    $includePublic = $true
+    Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: Public share access lists are empty, granting default access."
+} else {
+    # Case 2: Allow list logic.
+    # If the allow list is defined, user must have an assigned share that is on the list.
+    # If the allow list is empty, access is allowed by default (and will be checked against the deny list).
+    $isAllowed = $false
+    if ($allowedSharesForPublic.Count -gt 0) {
+        if ($uniqueUserShares | Where-Object { $allowedSharesForPublic -contains $_ } | Select-Object -First 1) {
+            $isAllowed = $true
+        }
+    } else {
+        $isAllowed = $true
+    }
+
+    # Case 3: Deny list logic.
+    # If the deny list is defined, user must not have any assigned share that is on the list.
+    $isDenied = $false
+    if ($deniedSharesForPublic.Count -gt 0) {
+        if ($uniqueUserShares | Where-Object { $deniedSharesForPublic -contains $_ } | Select-Object -First 1) {
+            $isDenied = $true
+        }
+    }
+
+    if ($isAllowed -and -not $isDenied) {
+        $includePublic = $true
+    }
+}
+
+if ($includePublic) {
+    $requiredShareNames += "Public"
+    Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: 'Public' share will be added for this user based on logical share rules."
+} else {
+    Write-Host "($(Get-Date -Format 'HH:mm:ss')) - DEBUG: 'Public' share will not be added for this user due to logical share restrictions."
+}
 $requiredShareNames = $requiredShareNames | Select-Object -Unique
 $requiredUncPaths = @()
 foreach ($shareName in $requiredShareNames) {
@@ -229,18 +347,34 @@ foreach ($shareName in $requiredShareNames) {
 $requiredUncPaths = $requiredUncPaths | Select-Object -Unique
 Write-Output "Required UNC paths: $($requiredUncPaths -join ', ')"
 
-# 5. Manage existing drives (unmapping)
+# 6. Manage existing drives (unmapping)
+# This section ensures that the user has the correct set of drives based on the required list,
+# but ONLY for the drives this script is configured to manage. It will not touch other mapped drives.
+
+# First, get a flat list of all UNC paths this script is configured to manage.
+$allManageableUncPaths = @()
+foreach($share in $NetworkShares.Values) {
+    if ($share -is [array]) { $allManageableUncPaths += $share } else { $allManageableUncPaths += $share }
+}
+$allManageableUncPaths = $allManageableUncPaths | Select-Object -Unique
+
+# Then, get all currently mapped drives.
 $mappedDrives = Get-ChildItem -Path 'HKCU:\Network' -ErrorAction SilentlyContinue | ForEach-Object {
     [PSCustomObject]@{ DriveLetter = $_.PSChildName; RemotePath  = (Get-ItemProperty -Path $_.PSPath).RemotePath }
 }
+
 foreach ($drive in $mappedDrives) {
-    if ($requiredUncPaths -notcontains $drive.RemotePath) {
-        Write-Output "Removing drive '$($drive.DriveLetter)' mapped to '$($drive.RemotePath)' as it is no longer required."
-        Remove-PSDrive -Name $drive.DriveLetter -Force -ErrorAction SilentlyContinue
+    # First, check if this drive is one that the script should manage.
+    if ($allManageableUncPaths -contains $drive.RemotePath) {
+        # This is a managed drive. Now check if the user should still have it, and that it's not excluded.
+        if (($requiredUncPaths -notcontains $drive.RemotePath) -and ($ExcludedUncPaths -notcontains $drive.RemotePath)) {
+            Write-Output "Removing managed drive '$($drive.DriveLetter)' mapped to '$($drive.RemotePath)' as it is no longer required for this user."
+            Remove-PSDrive -Name $drive.DriveLetter -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 
-# 6. Map new drives
+# 7. Map new drives
 $currentlyMappedPaths = (Get-WmiObject -Class Win32_MappedLogicalDisk -ErrorAction SilentlyContinue).ProviderName
 foreach ($path in $requiredUncPaths) {
     if ($currentlyMappedPaths -contains $path) {
@@ -260,7 +394,7 @@ foreach ($path in $requiredUncPaths) {
     }
 }
 
-# 7. Create the status file
+# 8. Create the status file
 Write-Output "Creating status file..."
 if (-not (Test-Path -Path $StatusFileDirectory)) {
     New-Item -Path $StatusFileDirectory -ItemType Directory -Force | Out-Null
