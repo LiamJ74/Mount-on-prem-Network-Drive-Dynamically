@@ -132,21 +132,18 @@ You can define which Azure AD groups map to which network shares by modifying th
 ```powershell
 # Maps a group name (with wildcard *) to a logical share name
 $DriveMappings = @{
-    "ALPESCN_ORDONNANCEMENT_R"  = "ORDONNANCEMENT"
-    "ALPESCN_LOGISTIQUE_R"      = "LOGISTIQUE"
-    "ALPESCN_FINANCE_RW"        = "FINANCE"
+    "FINANCE_RW"        = "FINANCE"
     "R&D"                       = "R&D"
     # ... etc.
 }
 
 # Maps a logical share name to one or more actual UNC paths
 $NetworkShares = @{
-    "ORDONNANCEMENT" = "\\10.80.2.20\ORDONNANCEMENT"
-    "LOGISTIQUE"     = "\\10.80.2.20\LOGISTIQUE"
-    "FINANCE"        = "\\10.80.2.20\FINANCE"
+
+    "FINANCE"        = "\\XX.XX.X.XX\FINANCE"
     "R&D" = @(
-        "\\vm-data\RDM",
-        "\\vm-data\TLC"
+        "\\XX.XX.X.XX\R&D",
+        "\\XX.XX.X.XX\R&D2"
         # ... etc.
     )
 }
