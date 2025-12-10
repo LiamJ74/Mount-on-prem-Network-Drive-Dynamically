@@ -47,7 +47,7 @@ $HardcodedClientSecret = "" # <-- Enter Client Secret here
 
 # --- Drive Exclusion Configuration ---
 # Add any UNC paths here that should NEVER be unmapped by this script.
-# This is useful for shared mailboxes or other drives that users may map manually.
+# This is useful for drives that users may map manually.
 $ExcludedUncPaths = @(
     # "\\SERVER\SHARE1",
     # "\\ANOTHER-SERVER\SHARE2"
